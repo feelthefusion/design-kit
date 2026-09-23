@@ -36,6 +36,20 @@ It works with Claude Code and Hermes: both get the same skills, the same gate an
 
 Every finding comes with a selector and a px offset. A clean run is stamped, so the next run is skipped until a UI file changes. It is safe on a live dev server: the browser aborts every POST/PUT/PATCH/DELETE and logout request. If it can't run (no server, no browser), it prints the reason visibly and doesn't fail.
 
+## Always latest
+
+Every install and every update pulls the newest of everything. That covers the kit itself, each upstream skill at its repo's HEAD (with overlays re-applied), the gate runtime, and the links in `~/.claude/skills` and `~/.hermes/skills/design`. If you already have an older copy of a kit skill, whether installed by hand, from a hub, or inside a repo's `.claude/skills`, the kit moves it to `~/.config/design-kit/replaced/` and links the live one in its place. It never deletes a copy. Copies committed inside a repo are only reported, because they're your files.
+
+Updates run on their own, the same way the Skill Starter Kit's do:
+
+| trigger | what runs |
+|---|---|
+| session start (Claude Code `SessionStart`, Hermes `on_session_start`) | `design-update --if-stale 1 --background` |
+| every hour (launchd `com.design-kit.update`; a systemd timer or cron on Linux) | `design-update --if-stale 1` |
+| push to this repo (`design-webhook enable`: Hermes webhook route, shares the Starter Kit tunnel) | `design-update --force` |
+
+Each run also refreshes the kit-owned blocks (the `verify.sh` step and the AGENTS/CLAUDE block) in every repo you ran `design-init` in. It never touches anything else in those repos. The log is at `~/.config/design-kit/update.log`.
+
 ## Commands
 
 | command | does |
@@ -43,7 +57,8 @@ Every finding comes with a selector and a px offset. A clean run is stamped, so 
 | `design-init` | wire this repo: config, DESIGN.md draft (only if none), banned values, `verify.sh` step, AGENTS/CLAUDE block |
 | `design-gate [--only type,align] [--routes /,/shop] [--force]` | run the gate |
 | `design-tokens` | print DESIGN.md front matter drafted from the tokens the code already defines |
-| `design-update` | pull the kit, re-fetch upstreams at HEAD, re-apply overlays, refresh the runtime (runs at session start, at most every 6h) |
+| `design-update [--if-stale H] [--background] [--force]` | update everything now (see Always latest) |
+| `design-webhook enable\|status\|disable` | push-triggered updates through the Hermes gateway |
 | `design-doctor` | check install + repo wiring |
 
 The gate runtime (Playwright, impeccable, yaml) lives in `~/.local/share/design-kit/runtime`. Package versions are picked at least 7 days after release (`DK_COOLDOWN_DAYS`).

@@ -31,7 +31,7 @@ for s in $KIT_SKILLS $(upstream_rows "$KIT" | cut -f1); do
     done
 done
 "$KIT/bin/design-webhook" status
-if git rev-parse --git-dir >/dev/null 2>&1; then
+if git rev-parse --git-dir >/dev/null 2>&1 && [ "$(git rev-parse --show-toplevel)" != "$KIT" ]; then
     say "repo: $(basename "$(git rev-parse --show-toplevel)")"
     chk ".agents/design-kit.json" '[ -f .agents/design-kit.json ]'
     chk "DESIGN.md" '[ -f docs/DESIGN.md ] || [ -f DESIGN.md ]'
