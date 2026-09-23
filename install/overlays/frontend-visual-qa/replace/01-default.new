@@ -1,0 +1,4 @@
+Default to **fix-and-verify** (Design Kit). Fix what you find in source, reload
+the rendered target and re-run the same check until it passes. Switch to
+audit-only only when the user asks for a report without changes. Fixing source
+does not authorize deploying.

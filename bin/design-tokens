@@ -1,0 +1,5 @@
+#!/usr/bin/env bash
+# design-tokens — draft DESIGN.md front matter from the tokens a repo already defines (prints, never writes)
+set -euo pipefail
+KIT="$(cd "$(dirname "$(python3 -c 'import os,sys;print(os.path.realpath(sys.argv[1]))' "${BASH_SOURCE[0]}")")/.." && pwd)"
+exec node "$KIT/gate/design-tokens.mjs" "$@"

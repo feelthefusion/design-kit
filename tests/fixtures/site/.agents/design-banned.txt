@@ -1,0 +1,4 @@
+# kind value  # why
+text —  # no em-dashes in UI copy
+font Playfair  # not our brand
+color #C9A84C  # a competitor's gold

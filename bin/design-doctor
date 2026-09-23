@@ -1,0 +1,30 @@
+#!/usr/bin/env bash
+# design-doctor — is the Design Kit installed, current and wired? (read-only)
+set -uo pipefail
+KIT="$(cd "$(dirname "$(python3 -c 'import os,sys;print(os.path.realpath(sys.argv[1]))' "${BASH_SOURCE[0]}")")/.." && pwd)"
+# shellcheck source=../install/lib.sh
+. "$KIT/install/lib.sh"
+bad=0
+chk() { if eval "$2" >/dev/null 2>&1; then printf '  ✓ %s\n' "$1"; else printf '  ✗ %s\n' "$1"; bad=$((bad+1)); fi; }
+say "Design Kit doctor — $(git -C "$KIT" rev-parse --short HEAD 2>/dev/null)"
+chk "node ≥ 18" '[ "$(node -p "process.versions.node.split(\".\")[0]")" -ge 18 ]'
+chk "gate runtime (playwright, impeccable, yaml)" '[ -d "$DK_HOME/runtime/node_modules/playwright" ] && [ -x "$DK_HOME/runtime/node_modules/.bin/impeccable" ]'
+chk "Chromium for the runtime's playwright" '[ -x "$(cd "$DK_HOME/runtime" && node -p "require(\"playwright\").chromium.executablePath()")" ]'
+while IFS=$'\t' read -r name repo _ _ hosts _; do
+    chk "$name rendered ($(sed -n 's/^commit: //p' "$DK_HOME/skills/$name/.upstream" 2>/dev/null) ← $repo)" "[ -f '$DK_HOME/skills/$name/SKILL.md' ]"
+    case "$hosts" in both|claude) [ -d "$HOME/.claude" ] && chk "  Claude Code: $name" "[ -e '$HOME/.claude/skills/$name/SKILL.md' ]" ;; esac
+    case "$hosts" in both|hermes) [ -d "$HOME/.hermes" ] && chk "  Hermes: $name" "[ -e '$HOME/.hermes/skills/design/$name/SKILL.md' ]" ;; esac
+done < <(upstream_rows "$KIT")
+for s in $KIT_SKILLS; do
+    [ -d "$HOME/.claude" ] && chk "Claude Code: $s" "[ -e '$HOME/.claude/skills/$s/SKILL.md' ]"
+    [ -d "$HOME/.hermes" ] && chk "Hermes: $s" "[ -e '$HOME/.hermes/skills/design/$s/SKILL.md' ]"
+done
+[ -d "$HOME/.claude" ] && chk "Claude Code session-start update hook" 'grep -q design-update "$HOME/.claude/settings.json"'
+command -v hermes >/dev/null && chk "Hermes session-start update hook" 'hermes config get --json hooks.on_session_start | grep -q design-update'
+if git rev-parse --git-dir >/dev/null 2>&1; then
+    say "repo: $(basename "$(git rev-parse --show-toplevel)")"
+    chk ".agents/design-kit.json" '[ -f .agents/design-kit.json ]'
+    chk "DESIGN.md" '[ -f docs/DESIGN.md ] || [ -f DESIGN.md ]'
+    chk "verify.sh runs design-gate" 'grep -q "# >>> design-kit" verify.sh'
+fi
+if [ "$bad" -eq 0 ]; then say "✓ all good"; else say "✗ $bad problem(s) — design-update fixes most; design-init wires a repo"; exit 1; fi

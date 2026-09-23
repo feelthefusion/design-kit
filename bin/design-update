@@ -1,0 +1,26 @@
+#!/usr/bin/env bash
+# design-update — pull the Design Kit, re-fetch every upstream skill at HEAD, re-apply overlays,
+# refresh the gate runtime. Hosts call it at session start with --hook (throttled, backgrounded).
+set -uo pipefail
+KIT="$(cd "$(dirname "$(python3 -c 'import os,sys;print(os.path.realpath(sys.argv[1]))' "${BASH_SOURCE[0]}")")/.." && pwd)"
+# shellcheck source=../install/lib.sh
+. "$KIT/install/lib.sh"
+TTL="${DK_UPDATE_TTL:-21600}"   # 6h between background refreshes
+STAMP="$DK_CONF/last-update"
+if [ "${1:-}" = "--hook" ]; then
+    mkdir -p "$DK_CONF"
+    now=$(date +%s); last=$(cat "$STAMP" 2>/dev/null || echo 0)
+    [ $((now - last)) -lt "$TTL" ] && exit 0
+    echo "$now" > "$STAMP"
+    nohup "$0" > "$DK_CONF/update.log" 2>&1 &
+    exit 0
+fi
+say "▶ Design Kit update"
+kit_self_update "$KIT"
+fetch_upstreams "$KIT"
+render_upstreams "$KIT"
+ensure_runtime "$KIT"
+[ -d "$HOME/.claude" ] && link_upstream_skills "$KIT" "$HOME/.claude/skills" claude >/dev/null
+[ -d "$HOME/.hermes" ] && link_upstream_skills "$KIT" "$HOME/.hermes/skills/design" hermes >/dev/null
+mkdir -p "$DK_CONF"; date +%s > "$STAMP"
+say "✓ Design Kit current"

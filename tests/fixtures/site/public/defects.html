@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Defects fixture</title>
+<style>
+  body { margin: 0; font-family: Arial, sans-serif; color: #111827; background: #FFFFFF; line-height: 1.5; }
+  main { max-width: 960px; margin: 0 auto; padding: 32px 16px 32px; }
+  h1 { font-size: 40px; letter-spacing: 2px; margin: 0 0 16px; }
+  .btn { display: inline-flex; align-items: center; gap: 8px; height: 44px; padding: 0 16px; border-radius: 9999px; border: 1px solid #D1D5DB; background: #F3F4F6; color: #111827; font: inherit; }
+  .btn svg { width: 16px; height: 16px; }
+  .low { position: relative; top: 4px; }                         /* icon-label defect */
+  .pair { display: flex; gap: 8px; margin-bottom: 16px; align-items: flex-start; }
+  .short { height: 38px; }                                       /* equal-height defect */
+  .cards { display: flex; gap: 8px; align-items: flex-start; margin-bottom: 16px; }
+  .cards > div { flex: 1; height: 60px; background: #F3F4F6; }
+  .cards > .drop { margin-top: 6px; }                            /* row defect */
+  .grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-bottom: 16px; }
+  .grid > div { background: #F3F4F6; min-height: 60px; }
+  .grid > .shorty { height: 40px; min-height: 0; }                /* grid-row defect */
+  .col > div { background: #F3F4F6; height: 24px; margin-bottom: 8px; }
+  .col > .nudge { margin-left: 5px; }                            /* edge defect */
+  .pad { padding: 16px 16px 16px 24px; background: #F3F4F6; margin-bottom: 16px; }   /* padding defect */
+  nav { display: flex; gap: 16px; margin-bottom: 16px; }
+  nav a { display: inline-flex; align-items: center; gap: 6px; color: #111827; text-decoration: none; }
+  nav svg { width: 20px; height: 20px; }
+  nav a:nth-child(3) svg { width: 24px; height: 24px; }          /* icon-size defect */
+  .hot { color: #FF00AA; }                                       /* off-palette colour */
+  .gold { color: #C9A84C; }                                      /* banned colour */
+  .comic { font-family: "Comic Sans MS", cursive; }              /* off-brand font */
+  input { font-size: 14px; padding: 8px; border: 1px solid #D1D5DB; }  /* iOS zoom */
+  table td { padding: 4px 8px; }
+  .bar { position: fixed; left: 0; right: 0; bottom: 0; height: 64px; background: #111827; color: #FFFFFF; display: flex; align-items: center; justify-content: center; }
+  .ok-offset { position: relative; top: 5px; }
+</style></head>
+<body><main>
+  <h1>Defects — every check fires</h1>
+  <p><button class="btn" type="button" id="dl"><svg class="low" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" fill="#111827"/></svg>Download</button></p>
+  <div class="pair"><button class="btn" type="button" id="p1">Primary</button><button class="btn short" type="button" id="p2">Secondary</button></div>
+  <div class="cards"><div></div><div class="drop"></div><div></div></div>
+  <div class="grid"><div>One<br>two<br>three</div><div class="shorty">Short</div><div>Three</div></div>
+  <div class="col"><div></div><div class="nudge"></div><div></div></div>
+  <div class="pad">Uneven padding box</div>
+  <nav>
+    <a href="/clean.html"><svg viewBox="0 0 24 24"><rect width="24" height="24" fill="#111827"/></svg>Home</a>
+    <a href="/clean.html"><svg viewBox="0 0 24 24"><rect width="24" height="24" fill="#111827"/></svg>Shop</a>
+    <a href="/clean.html"><svg viewBox="0 0 24 24"><rect width="24" height="24" fill="#111827"/></svg>Cart</a>
+  </nav>
+  <p class="hot">Off-palette pink</p>
+  <p class="gold">Banned gold</p>
+  <p class="comic">Wrong font</p>
+  <p>Copy with an em-dash — here.</p>
+  <p><input placeholder="Email"></p>
+  <table><tr><td>Price</td><td>1,111.11</td></tr><tr><td>Tax</td><td>8.80</td></tr><tr><td>Total</td><td>1,119.91</td></tr></table>
+  <p><button class="btn" type="button" id="dead">Does nothing</button></p>
+  <p><button class="btn" type="button" id="boom">Throws</button></p>
+  <!-- design-ok: offset badge sits on the baseline on purpose -->
+  <p><span class="btn"><svg class="ok-offset" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" fill="#111827"/></svg>Allowed offset</span></p>
+  <p><button class="btn" type="button" id="last">Last button under the bar</button></p>
+</main>
+<div class="bar">Fixed promo bar</div>
+<script>
+  document.getElementById("dl").onclick = () => { document.title = "clicked"; document.body.dataset.x = "1"; };
+  document.getElementById("p1").onclick = () => { document.body.dataset.p = "1"; };
+  document.getElementById("p2").onclick = () => { document.body.dataset.p = "2"; };
+  document.getElementById("boom").onclick = () => { document.body.dataset.b = "1"; throw new Error("boom handler"); };
+  document.getElementById("last").onclick = () => { document.body.dataset.l = "1"; };
+</script>
+</body></html>

@@ -1,0 +1,11 @@
+# Design Kit — upstream skills, fetched LIVE from their own repo on every install / design-update.
+# Nothing here is vendored: each row is shallow-cloned at HEAD, the kit overlay
+# (install/overlays/<name>/) is re-applied, and the result is linked into both hosts.
+# hosts: both | claude | hermes   (design-md ships built into Hermes, so Claude Code only)
+# name	owner/repo	ref	path-in-repo	hosts	job it owns (one owner per job)
+design-md	NousResearch/hermes-agent	main	skills/creative/design-md	claude	DESIGN.md token spec: author, lint (npx @google/design.md), diff, export
+web-design-guidelines	vercel-labs/agent-skills	main	skills/web-design-guidelines	both	code review against Vercel's Web Interface Guidelines (rules fetched fresh each run)
+frontend-visual-qa	daymade/claude-code-skills	main	frontend-visual-qa	both	rendered review: overflow, overlap, wrapping, broken media, routes (bundled Playwright sweep)
+core-web-vitals	addyosmani/web-quality-skills	main	skills/core-web-vitals	both	mobile speed: LCP, INP, CLS with field + lab evidence
+apple-design	emilkowalski/skills	main	skills/apple-design	both	motion, materials and type foundations: springs, interruptibility, tracking, reduced motion
+impeccable	pbakaus/impeccable	main	plugin/skills/impeccable	both	critique / audit / polish / typeset / layout commands + 61 deterministic anti-pattern detectors

@@ -1,0 +1,4 @@
+Default to **audit-only**. Do not edit implementation, add tests, install
+dependencies, or update snapshots unless the user explicitly asks to fix or
+change the UI. Permission to fix source does not authorize rebuilding,
+restarting, or deploying any target.

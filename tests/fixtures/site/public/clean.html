@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Clean fixture</title>
+<style>
+  html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
+  body { margin: 0; font-family: Arial, sans-serif; color: #111827; background: #FFFFFF; -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale; line-height: 1.5; }
+  main { max-width: 960px; margin: 0 auto; padding: 32px 16px; }
+  h1 { font-size: 32px; letter-spacing: -0.02em; margin: 0 0 16px; }
+  p { margin: 0 0 16px; }
+  .row { display: flex; gap: 8px; align-items: center; margin-bottom: 16px; }
+  .btn { display: inline-flex; align-items: center; gap: 8px; height: 44px; padding: 0 16px; border-radius: 9999px; border: 1px solid #D1D5DB; background: #F3F4F6; color: #111827; font: inherit; cursor: pointer; }
+  .btn svg { width: 16px; height: 16px; }
+  :focus-visible { outline: 2px solid #2563EB; outline-offset: 2px; }
+  .out { padding: 16px; background: #F3F4F6; border-radius: 8px; }
+</style></head>
+<body><main>
+  <h1>Clean page</h1>
+  <p>Every value here is a DESIGN.md token and every button works.</p>
+  <div class="row">
+    <button class="btn" id="a" type="button">Show</button>
+    <button class="btn" id="b" type="button">Hide</button>
+  </div>
+  <div class="out" id="out">Ready</div>
+</main>
+<script>
+  document.getElementById("a").onclick = () => { document.getElementById("out").textContent = "Shown"; };
+  document.getElementById("b").onclick = () => { document.getElementById("out").textContent = "Hidden"; };
+</script>
+</body></html>

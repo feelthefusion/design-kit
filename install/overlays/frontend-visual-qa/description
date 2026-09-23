@@ -1,0 +1,1 @@
+Use after UI changes to audit the RENDERED page (real browser, 375/768/1440): overflow, overlap, clipping, wrapping, broken media, dead routes, hierarchy. Fix-and-rerun until clean. Bundled Playwright sweep runs in the Design Kit gate.

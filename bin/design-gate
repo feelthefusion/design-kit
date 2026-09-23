@@ -1,0 +1,6 @@
+#!/usr/bin/env bash
+# design-gate — the Design Kit's rendered + code design check (see skill: design-gate)
+set -euo pipefail
+KIT="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}" 2>/dev/null || python3 -c 'import os,sys;print(os.path.realpath(sys.argv[1]))' "${BASH_SOURCE[0]}")")/.." && pwd)"
+command -v node >/dev/null 2>&1 || { echo "⚠ design gate skipped: node not found (Node 18+ needed)"; exit 3; }
+exec node "$KIT/gate/design-gate.mjs" "$@"
