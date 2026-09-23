@@ -62,10 +62,10 @@ SH
     hermes config set platforms.webhook.enabled true >/dev/null
     hermes config get platforms.webhook.extra.port 2>/dev/null | grep -q '[0-9]' || hermes config set platforms.webhook.extra.port "$PORT" >/dev/null
     [ -s "$SECRET" ] || { openssl rand -hex 24 > "$SECRET"; chmod 600 "$SECRET"; }
-    hermes webhook list 2>/dev/null | grep -q "$ROUTE" && hermes webhook remove "$ROUTE" >/dev/null 2>&1
+    hermes webhook list 2>/dev/null | grep "$ROUTE" >/dev/null && hermes webhook remove "$ROUTE" >/dev/null 2>&1
     hermes webhook subscribe "$ROUTE" --events push --script design-update-webhook.sh --secret "$(cat "$SECRET")" \
         --description "Design Kit: GitHub push → design-update" --prompt "design kit push {after}" >/dev/null 2>&1
-    hermes webhook list 2>/dev/null | grep -q "$ROUTE" || { echo "✗ hermes webhook subscribe failed (run: hermes gateway setup)"; exit 1; }
+    hermes webhook list 2>/dev/null | grep "$ROUTE" >/dev/null || { echo "✗ hermes webhook subscribe failed (run: hermes gateway setup)"; exit 1; }
     ok "hermes webhook route /webhooks/$ROUTE"
     if [ -n "$url" ]; then echo "url $url" > "$MODE"
     elif [ -s "$TUNNEL_URL_FILE" ]; then echo tunnel > "$MODE"; ok "sharing the Skill Starter Kit tunnel ($(cat "$TUNNEL_URL_FILE")) — re-pointed on every design-update"
@@ -82,11 +82,11 @@ sync)
 status)
     [ -f "$MODE" ] || { say "  · push webhook off (design-webhook enable)"; exit 0; }
     say "  · mode: $(cat "$MODE") · GitHub → $(cat "$POINTED" 2>/dev/null)/webhooks/$ROUTE"
-    hermes webhook list 2>/dev/null | grep -q "$ROUTE" && ok "hermes route $ROUTE" || warn "hermes route $ROUTE missing (design-webhook enable)"
+    hermes webhook list 2>/dev/null | grep "$ROUTE" >/dev/null && ok "hermes route $ROUTE" || warn "hermes route $ROUTE missing (design-webhook enable)"
     curl -s -m 3 -o /dev/null "http://localhost:$PORT/health" && ok "gateway listening on :$PORT" || warn "gateway not listening on :$PORT"
     ;;
 disable)
-    hermes webhook list 2>/dev/null | grep -q "$ROUTE" && hermes webhook remove "$ROUTE" >/dev/null 2>&1 && ok "route removed"
+    hermes webhook list 2>/dev/null | grep "$ROUTE" >/dev/null && hermes webhook remove "$ROUTE" >/dev/null 2>&1 && ok "route removed"
     for id in $(gh api "repos/$REPO/hooks" --jq ".[] | select(.config.url | endswith(\"/webhooks/$ROUTE\")) | .id" 2>/dev/null); do
         gh api -X DELETE "repos/$REPO/hooks/$id" >/dev/null 2>&1 && ok "GitHub webhook $id removed"
     done
