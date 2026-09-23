@@ -76,7 +76,7 @@ render_upstreams() {  # $1 = kit root
     done < <(upstream_rows "$root")
 }
 
-# install/overlays/<skill>/: description · PREPEND.md · APPEND.md · replace/<n>.old|.new · files/
+# install/overlays/<skill>/: description · PREPEND.md · APPEND.md · rename · replace/<n>.old|.new · files/
 apply_overlays() {  # $1 = kit root  $2 = skill  $3 = dir
     local ov="$1/install/overlays/$2"
     [ -d "$ov" ] || return 0
@@ -108,6 +108,14 @@ if os.path.isdir(rd):
         new = open(np_, encoding="utf-8").read().strip("\n") if os.path.exists(np_) else ""
         if old in body: body = body.replace(old, new)
         else: print(f"    WARN overlay {os.path.basename(ov)}/replace/{f}: text not found upstream — the PREPEND scope still applies; review the overlay", file=sys.stderr)
+# rename: "old<TAB>new" per line — name-level swaps (e.g. a skill this kit replaces) that survive
+# upstream rewording, unlike whole-passage replace/ pairs
+rn = os.path.join(ov, "rename")
+if os.path.exists(rn):
+    for ln in open(rn, encoding="utf-8").read().splitlines():
+        if "\t" not in ln or ln.startswith("#"): continue
+        a, b = ln.split("\t", 1)
+        body = body.replace(a, b); fm = fm.replace(a, b)
 pp = os.path.join(ov, "PREPEND.md")
 if os.path.exists(pp): body = open(pp, encoding="utf-8").read().rstrip() + "\n\n" + body.lstrip("\n")
 ap = os.path.join(ov, "APPEND.md")

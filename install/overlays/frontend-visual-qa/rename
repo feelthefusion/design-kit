@@ -1,0 +1,5 @@
+Use ui-designer, frontend-design, or another design skill	Use design-direction (Design Kit) for the visual direction and DESIGN.md tokens, and Taste (`design-taste-frontend`, Skill Starter Kit)
+(use ui-designer)	(use design-direction, then Taste)
+Use both this skill and qa-expert	Use both this skill and verify-gate
+Use qa-expert for	Use test-driven-development / verify-gate (Skill Starter Kit) for
+(use qa-expert)	(use verify-gate, Skill Starter Kit)

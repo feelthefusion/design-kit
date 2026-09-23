@@ -104,6 +104,8 @@ t "--if-stale skips a fresh install instantly" '[ "$(cd "$TMP" && "$KIT/bin/desi
 echo "▶ upstream overlays + hygiene"
 DKH="${DESIGN_KIT_HOME:-$HOME/.local/share/design-kit}"
 t "frontend-visual-qa → fix-and-rerun"    'grep -q "Design Kit overlay" "$DKH/skills/frontend-visual-qa/SKILL.md" && grep -qi "fix-and-rerun" "$DKH/skills/frontend-visual-qa/SKILL.md"'
+t "every overlay still applies to today's upstream (no drift)" '! (cd "$KIT" && KIT_NO_UPSTREAM=1 bash -c ". install/lib.sh; render_upstreams ." 2>&1) | grep -q WARN'
+t "no replaced skill names left in overlaid upstreams" '! grep -lE "ui-designer|qa-expert" "$DKH/skills/frontend-visual-qa/SKILL.md"'
 t "rendered skills record their commit"   'for d in "$DKH"/skills/*/; do grep -q "^commit: " "$d/.upstream" || exit 1; done'
 t "no swallowed failures in kit code"     '! grep -rnE "\|\| *true|\.skip\(" "$KIT/install" "$KIT/bin" "$KIT/gate" | grep -v "^\s*#"'
 t "every script parses"                   'for f in "$KIT"/install/*.sh "$KIT"/bin/*; do bash -n "$f" || exit 1; done && for f in "$KIT"/gate/*.mjs "$KIT"/gate/lib/*.mjs; do node --check "$f" || exit 1; done'

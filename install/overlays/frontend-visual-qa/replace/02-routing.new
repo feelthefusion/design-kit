@@ -1,6 +1,0 @@
-- Use design-direction (Design Kit) to set the visual direction and DESIGN.md
-  tokens, and Taste (`design-taste-frontend`, Skill Starter Kit) to build it.
-- Use this skill to test the already-rendered result, and browser-verify
-  (Skill Starter Kit) to drive the browser.
-- Use test-driven-development / verify-gate (Skill Starter Kit) for a full test
-  strategy; this skill supplies the rendered visual evidence inside it.
