@@ -116,14 +116,34 @@ open(skill, "w", encoding="utf-8").write("---\n" + fm + "\n---\n\n" + body.lstri
 PY
 }
 
-# Symlink one skill dir into a host skills dir. Never replaces a real skill the user installed
-# under the same name (that one keeps loading; the kit says so instead of clobbering it).
+# Symlink one skill dir into a host skills dir. The kit's LIVE copy always wins: an older copy
+# under the same name (installed by hand, from a hub, or a link to somewhere else) is moved to
+# $DK_CONF/replaced/ — never deleted — and the live link takes its place.
 link_skill() {  # link_skill <src-dir> <dst-dir>
-    local src="$1" dst="$2"
+    local src="$1" dst="$2" bk
     [ -d "$src" ] || { warn "$(basename "$dst"): not rendered yet (offline first run) — re-run online"; return 0; }
     if [ -L "$dst" ] && [ "$(readlink "$dst")" = "$src" ]; then ok "$(basename "$dst") linked"; return 0; fi
-    if [ -e "$dst" ] && [ ! -L "$dst" ]; then warn "$(basename "$dst"): a skill you installed yourself is at $dst — left as is (it wins over the kit's copy)"; return 0; fi
+    if [ -e "$dst" ] || [ -L "$dst" ]; then
+        bk="$DK_CONF/replaced/$(basename "$(dirname "$dst")")-$(basename "$dst").$(date +%Y%m%d-%H%M%S)"
+        mkdir -p "$DK_CONF/replaced"; mv "$dst" "$bk"
+        ok "$(basename "$dst"): older copy replaced by the live one (moved to $bk)"
+    fi
     ln -sfn "$src" "$dst" && ok "$(basename "$dst") → $src"
+}
+
+# Hermes loads skills from any category dir: an older copy of a kit skill elsewhere under
+# ~/.hermes/skills would shadow or duplicate the live one, so it is moved aside too.
+evict_hermes_duplicates() {  # $1 = kit root
+    local root="$1" hs="$HOME/.hermes/skills" name d bk
+    [ -d "$hs" ] || return 0
+    for name in $KIT_SKILLS $(upstream_rows "$root" | awk -F'\t' '$5=="both"||$5=="hermes"{print $1}'); do
+        for d in "$hs"/*/"$name" "$hs/$name"; do
+            [ -e "$d" ] || [ -L "$d" ] || continue
+            [ "$d" = "$hs/design/$name" ] && continue
+            bk="$DK_CONF/replaced/hermes-$(basename "$(dirname "$d")")-$name.$(date +%Y%m%d-%H%M%S)"
+            mkdir -p "$DK_CONF/replaced"; mv "$d" "$bk"; ok "hermes: older $name at $d moved to $bk (the live one is in design/)"
+        done
+    done
 }
 
 # Upstream skills for one host (hosts column: both | claude | hermes)
@@ -145,9 +165,9 @@ link_upstream_skills() {  # $1 = kit root  $2 = skills dir  $3 = host
 link_bins() {  # $1 = kit root
     mkdir -p "$DK_BIN"
     local b
-    for b in design-gate design-tokens design-update design-doctor; do chmod +x "$1/bin/$b"; ln -sfn "$1/bin/$b" "$DK_BIN/$b"; done
+    for b in design-gate design-tokens design-update design-doctor design-webhook; do chmod +x "$1/bin/$b"; ln -sfn "$1/bin/$b" "$DK_BIN/$b"; done
     chmod +x "$1/install/init-project.sh"; ln -sfn "$1/install/init-project.sh" "$DK_BIN/design-init"
-    ok "design-init design-gate design-tokens design-update design-doctor → $DK_BIN"
+    ok "design-init design-gate design-tokens design-update design-doctor design-webhook → $DK_BIN"
     case ":$PATH:" in *":$DK_BIN:"*) ;; *) warn "$DK_BIN is not on PATH — add: export PATH=\"\$HOME/.local/bin:\$PATH\"" ;; esac
 }
 
@@ -182,40 +202,90 @@ ensure_runtime() {  # $1 = kit root
     ln -sfn "$1/gate" "$DK_HOME/gate"
 }
 
-write_marked_block() {  # write_marked_block <file> <marker> <content-file>
-    local f="$1" mk="$2" body="$3" tmp
-    mkdir -p "$(dirname "$f")"; touch "$f"; tmp="$(mktemp)"
-    awk -v s="<!-- $mk:start -->" -v e="<!-- $mk:end -->" '$0==s{skip=1} !skip{print} $0==e{skip=0}' "$f" > "$tmp"
-    { printf '<!-- %s:start -->\n' "$mk"; cat "$body"; printf '<!-- %s:end -->\n' "$mk"; } >> "$tmp"
-    mv "$tmp" "$f"
+write_marked_block() {  # write_marked_block <file> <marker> <content-file>  (in place; no write if unchanged)
+    python3 - "$1" "$2" "$3" <<'PY'
+import os, re, sys
+f, mk, body = sys.argv[1:4]
+cur = open(f).read() if os.path.exists(f) else ""
+blk = f"<!-- {mk}:start -->\n" + open(body).read().rstrip("\n") + f"\n<!-- {mk}:end -->\n"
+pat = re.compile(re.escape(f"<!-- {mk}:start -->") + r".*?" + re.escape(f"<!-- {mk}:end -->") + r"\n?", re.S)
+new = pat.sub(lambda m: blk, cur, count=1) if pat.search(cur) else (cur.rstrip("\n") + ("\n\n" if cur.strip() else "") + blk)
+if new != cur:
+    os.makedirs(os.path.dirname(os.path.abspath(f)), exist_ok=True); open(f, "w").write(new); print("updated")
+else: print("current")
+PY
 }
 
+DK_HOOK_CMD="$DK_BIN/design-update --if-stale 1 --background"
 wire_claude_update_hook() {  # $1 = claude dir
-    python3 - "$1/settings.json" "$DK_BIN/design-update --hook" <<'PY'
+    python3 - "$1/settings.json" "$DK_HOOK_CMD" <<'PY'
 import json, os, sys
 p, cmd = sys.argv[1:3]
 s = json.load(open(p)) if os.path.exists(p) else {}
 ss = s.setdefault("hooks", {}).setdefault("SessionStart", [])
-if not any("design-update" in h.get("command", "") for g in ss for h in g.get("hooks", [])):
-    ss.append({"hooks": [{"type": "command", "command": cmd, "timeout": 10}]})
-    json.dump(s, open(p, "w"), indent=2); open(p, "a").write("\n"); print("added")
-else: print("present")
+want = {"type": "command", "command": cmd, "timeout": 10}
+have = [h for g in ss for h in g.get("hooks", []) if "design-update" in h.get("command", "")]
+if have == [want]: print("present"); sys.exit()
+for g in ss: g["hooks"] = [h for h in g.get("hooks", []) if "design-update" not in h.get("command", "")]
+ss[:] = [g for g in ss if g.get("hooks")]
+ss.append({"hooks": [want]})
+json.dump(s, open(p, "w"), indent=2); open(p, "a").write("\n"); print("updated" if have else "added")
 PY
 }
 
 wire_hermes_update_hook() {
     local cur merged
-    cur="$(hermes config get --json hooks.on_session_start 2>/dev/null || echo null)"
-    case "$cur" in *design-update*) echo present; return ;; esac
+    cur="$(hermes config get --json hooks.on_session_start 2>/dev/null)" || cur=null
     merged="$(python3 -c '
 import json, sys
 try: cur = json.loads(sys.argv[1]) or []
 except Exception: cur = []
 if not isinstance(cur, list): cur = []
-cur.append({"command": sys.argv[2] + " --hook", "timeout": 10})
-print(json.dumps(cur))' "$cur" "$DK_BIN/design-update")"
-    if hermes config set hooks.on_session_start "$merged" >/dev/null 2>&1; then echo added; else echo failed; fi
+want = {"command": sys.argv[2], "timeout": 10}
+if [h for h in cur if "design-update" in str(h.get("command", ""))] == [want]: print("PRESENT"); sys.exit()
+cur = [h for h in cur if "design-update" not in str(h.get("command", ""))] + [want]
+print(json.dumps(cur))' "$cur" "$DK_HOOK_CMD")"
+    [ "$merged" = PRESENT ] && { echo present; return; }
+    if hermes config set hooks.on_session_start "$merged" >/dev/null 2>&1; then echo wired; else echo failed; fi
 }
+
+# Periodic refresh that runs without any session: launchd (macOS) / systemd user timer / cron.
+DK_LABEL=com.design-kit.update
+wire_schedule() {
+    local every="${DK_UPDATE_EVERY_S:-3600}" cmd="$DK_BIN/design-update --if-stale 1"
+    mkdir -p "$DK_CONF"
+    if [ "$(uname -s)" = Darwin ]; then
+        local plist="$HOME/Library/LaunchAgents/$DK_LABEL.plist" tmp
+        mkdir -p "$HOME/Library/LaunchAgents"; tmp="$(mktemp)"
+        cat > "$tmp" <<PL
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+  <key>Label</key><string>$DK_LABEL</string>
+  <key>ProgramArguments</key><array><string>/bin/bash</string><string>-lc</string><string>$cmd</string></array>
+  <key>StartInterval</key><integer>$every</integer>
+  <key>RunAtLoad</key><true/>
+  <key>LowPriorityIO</key><true/><key>ProcessType</key><string>Background</string>
+  <key>StandardOutPath</key><string>$DK_CONF/update.log</string><key>StandardErrorPath</key><string>$DK_CONF/update.log</string>
+</dict></plist>
+PL
+        if cmp -s "$tmp" "$plist" && launchctl print "gui/$(id -u)/$DK_LABEL" >/dev/null 2>&1; then rm -f "$tmp"; echo "present (launchd, every $((every / 60)) min)"; return; fi
+        mv "$tmp" "$plist"
+        launchctl bootout "gui/$(id -u)/$DK_LABEL" >/dev/null 2>&1
+        if launchctl bootstrap "gui/$(id -u)" "$plist" 2>/dev/null; then echo "launchd $DK_LABEL, every $((every / 60)) min"; else echo "failed (launchctl bootstrap)"; fi
+    elif command -v systemctl >/dev/null 2>&1 && systemctl --user show-environment >/dev/null 2>&1; then
+        local d="$HOME/.config/systemd/user"; mkdir -p "$d"
+        printf '[Unit]\nDescription=Design Kit update\n[Service]\nType=oneshot\nExecStart=/bin/bash -lc "%s"\n' "$cmd" > "$d/design-kit-update.service"
+        printf '[Unit]\nDescription=Design Kit update (periodic)\n[Timer]\nOnBootSec=2min\nOnUnitActiveSec=%ss\nPersistent=true\n[Install]\nWantedBy=timers.target\n' "$every" > "$d/design-kit-update.timer"
+        if systemctl --user daemon-reload && systemctl --user enable --now design-kit-update.timer >/dev/null 2>&1; then echo "systemd user timer, every $((every / 60)) min"; else echo "failed (systemctl --user)"; fi
+    elif command -v crontab >/dev/null 2>&1; then
+        local cur; cur="$(crontab -l 2>/dev/null | grep -v 'design-update')"
+        if printf '%s\n%s\n' "$cur" "17 * * * * $cmd >> $DK_CONF/update.log 2>&1 # design-kit" | sed '/^$/d' | crontab -; then echo "cron, hourly"; else echo "failed (crontab)"; fi
+    else echo "unavailable (no launchd/systemd/cron) — session-start refresh still runs"; fi
+}
+
+# Repos wired with design-init: design-update refreshes their kit-owned blocks.
+register_repo() { mkdir -p "$DK_CONF"; touch "$DK_CONF/repos"; grep -qxF "$1" "$DK_CONF/repos" || echo "$1" >> "$DK_CONF/repos"; }
 
 write_kit_version() {  # $1 = kit root  $2 = dir
     mkdir -p "$2"

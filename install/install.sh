@@ -31,9 +31,13 @@ if [ "$want_claude" = 1 ]; then
     ok "session-start update hook: $(wire_claude_update_hook "$HOME/.claude")"
     write_kit_version "$KIT" "$HOME/.claude"
 fi
+say "▶ automatic updates"
+ok "schedule: $(wire_schedule)"
+date +%s > "$DK_CONF/last-update"
 if [ "$want_hermes" = 1 ]; then
     say "▶ Hermes (~/.hermes/skills/design)"
     bash "$KIT/install/hermes.sh" --no-shared
 fi
 say ""
-say "✓ Design Kit installed. In each web repo:  design-init   (wires verify.sh + DESIGN.md + config)"
+say "✓ Design Kit installed and self-updating (session start + hourly; push webhook: design-webhook enable)."
+say "  In each web repo:  design-init   (wires verify.sh + DESIGN.md + config)"

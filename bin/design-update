@@ -1,26 +1,89 @@
 #!/usr/bin/env bash
-# design-update — pull the Design Kit, re-fetch every upstream skill at HEAD, re-apply overlays,
-# refresh the gate runtime. Hosts call it at session start with --hook (throttled, backgrounded).
+# design-update — bring EVERYTHING to latest: the kit itself (git pull), every upstream skill
+# (shallow fetch of its repo at HEAD, overlays re-applied), the gate runtime, the links in
+# ~/.claude/skills and ~/.hermes/skills/design (the live copy replaces any older one), the
+# session-start hooks, the periodic schedule, and the kit-owned blocks in every repo you ran
+# design-init in.
+#
+#   design-update                            # now, in the foreground
+#   design-update --if-stale 1               # only if the last run was over 1h ago (schedule)
+#   design-update --if-stale 1 --background  # same, return immediately (session-start hooks)
+#
+# Triggers (same shape as the Skill Starter Kit's kit-update):
+#   • session start  Claude Code SessionStart / Hermes on_session_start → --if-stale 1 --background
+#   • schedule       launchd com.design-kit.update (systemd timer / cron on Linux), hourly
+#   • push webhook   design-webhook enable: GitHub push to the kit → Hermes route → --force
 set -uo pipefail
-KIT="$(cd "$(dirname "$(python3 -c 'import os,sys;print(os.path.realpath(sys.argv[1]))' "${BASH_SOURCE[0]}")")/.." && pwd)"
+SELF="$(python3 -c 'import os,sys;print(os.path.realpath(sys.argv[1]))' "${BASH_SOURCE[0]}")"
+KIT="$(cd "$(dirname "$SELF")/.." && pwd)"
 # shellcheck source=../install/lib.sh
 . "$KIT/install/lib.sh"
-TTL="${DK_UPDATE_TTL:-21600}"   # 6h between background refreshes
-STAMP="$DK_CONF/last-update"
-if [ "${1:-}" = "--hook" ]; then
-    mkdir -p "$DK_CONF"
-    now=$(date +%s); last=$(cat "$STAMP" 2>/dev/null || echo 0)
-    [ $((now - last)) -lt "$TTL" ] && exit 0
-    echo "$now" > "$STAMP"
-    nohup "$0" > "$DK_CONF/update.log" 2>&1 &
+STALE_H="" BG=0 FORCE=0 ARGS=("$@")
+while [ $# -gt 0 ]; do
+    case "$1" in
+        --if-stale) STALE_H="${2:-1}"; shift ;;
+        --background) BG=1 ;;
+        --force) FORCE=1 ;;
+        --hook) STALE_H=1; BG=1 ;;                     # older hook entries
+        *) echo "unknown flag: $1"; exit 1 ;;
+    esac; shift
+done
+mkdir -p "$DK_CONF"
+STAMP="$DK_CONF/last-update" LOG="$DK_CONF/update.log" LOCK="$DK_CONF/update.lock"
+
+if [ -n "$STALE_H" ] && [ "$FORCE" = 0 ] && [ -f "$STAMP" ]; then
+    age=$(( $(date +%s) - $(cat "$STAMP") ))
+    [ "$age" -lt $(( STALE_H * 3600 )) ] && exit 0
+fi
+if [ "$BG" = 1 ]; then
+    rest=(); for a in "${ARGS[@]}"; do [ "$a" = --background ] || [ "$a" = --hook ] || rest+=("$a"); done
+    [ "${#rest[@]}" -eq 0 ] && rest=(--if-stale 1)
+    nohup "$SELF" "${rest[@]}" >> "$LOG" 2>&1 </dev/null &
     exit 0
 fi
-say "▶ Design Kit update"
+# one run at a time (session hooks, the schedule and the webhook can overlap)
+if ! mkdir "$LOCK" 2>/dev/null; then
+    if [ -n "$(find "$LOCK" -maxdepth 0 -mmin +30 2>/dev/null)" ]; then rm -rf "$LOCK"; mkdir "$LOCK"; else say "design-update already running"; exit 0; fi
+fi
+trap 'rm -rf "$LOCK"' EXIT
+
+say "▶ Design Kit update — $(date '+%Y-%m-%d %H:%M:%S')"
+before="$(git -C "$KIT" rev-parse HEAD 2>/dev/null)"
 kit_self_update "$KIT"
+if [ "${DK_REEXEC:-0}" = 0 ] && [ "$(git -C "$KIT" rev-parse HEAD 2>/dev/null)" != "$before" ]; then
+    rm -rf "$LOCK"; trap - EXIT
+    DK_REEXEC=1 KIT_NO_PULL=1 exec "$SELF" --force               # run the NEW updater code
+fi
 fetch_upstreams "$KIT"
 render_upstreams "$KIT"
 ensure_runtime "$KIT"
-[ -d "$HOME/.claude" ] && link_upstream_skills "$KIT" "$HOME/.claude/skills" claude >/dev/null
-[ -d "$HOME/.hermes" ] && link_upstream_skills "$KIT" "$HOME/.hermes/skills/design" hermes >/dev/null
-mkdir -p "$DK_CONF"; date +%s > "$STAMP"
-say "✓ Design Kit current"
+link_bins "$KIT" >/dev/null
+if [ -d "$HOME/.claude" ]; then
+    say "▶ Claude Code skills"
+    mkdir -p "$HOME/.claude/skills"
+    for s in $KIT_SKILLS; do link_skill "$KIT/skills/$s" "$HOME/.claude/skills/$s"; done
+    link_upstream_skills "$KIT" "$HOME/.claude/skills" claude
+    ok "session-start hook: $(wire_claude_update_hook "$HOME/.claude")"
+fi
+if [ -d "$HOME/.hermes" ]; then
+    say "▶ Hermes skills"
+    mkdir -p "$HOME/.hermes/skills/design"
+    evict_hermes_duplicates "$KIT"
+    for s in $KIT_SKILLS; do link_skill "$KIT/skills/$s" "$HOME/.hermes/skills/design/$s"; done
+    link_upstream_skills "$KIT" "$HOME/.hermes/skills/design" hermes
+    command -v hermes >/dev/null 2>&1 && ok "session-start hook: $(wire_hermes_update_hook)"
+fi
+ok "schedule: $(wire_schedule)"
+if [ -s "$DK_CONF/repos" ]; then
+    say "▶ wired repos"
+    rm -f "$DK_CONF/repos.next"
+    while IFS= read -r r; do
+        [ -d "$r/.git" ] || { say "  · $r gone — dropped"; continue; }
+        (cd "$r" && bash "$KIT/install/init-project.sh" --refresh) | sed 's/^/  /'
+        echo "$r" >> "$DK_CONF/repos.next"
+    done < "$DK_CONF/repos"
+    if [ -f "$DK_CONF/repos.next" ]; then mv "$DK_CONF/repos.next" "$DK_CONF/repos"; else : > "$DK_CONF/repos"; fi
+fi
+"$KIT/bin/design-webhook" sync
+date +%s > "$STAMP"
+say "✓ Design Kit current ($(git -C "$KIT" rev-parse --short HEAD 2>/dev/null))"

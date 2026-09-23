@@ -7,6 +7,7 @@ KIT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 pass=0; fail=0
 t() { if eval "$2"; then printf '  ✓ %s\n' "$1"; pass=$((pass+1)); else printf '  ✗ %s\n' "$1"; fail=$((fail+1)); fi; }
 TMP="$(mktemp -d)"; trap 'kill "${SRV:-0}" 2>/dev/null; rm -rf "$TMP"' EXIT
+export XDG_CONFIG_HOME="$TMP/conf"      # the repo registry, backups and stamps of this run stay in $TMP
 
 echo "▶ gate on fixtures"
 PORT=8779
@@ -68,6 +69,37 @@ t "re-run doesn't duplicate the verify step" '[ "$(grep -c "# >>> design-kit" ve
 N="$TMP/lib"; mkdir -p "$N" && cd "$N" && git init -q . && printf '{"name":"lib"}\n' > package.json
 bash "$KIT/install/init-project.sh" > "$TMP/init3.txt" 2>&1
 t "non-web repo left untouched"           '[ ! -e .agents ] && grep -q "not a web app" "$TMP/init3.txt"'
+
+t "repo registered for design-update"       'grep -qxF "$(cd "$R2" && pwd -P)" "$XDG_CONFIG_HOME/design-kit/repos" || grep -qxF "$R2" "$XDG_CONFIG_HOME/design-kit/repos"'
+cd "$R2"; m1="$(stat -f %m AGENTS.md verify.sh 2>/dev/null || stat -c %Y AGENTS.md verify.sh)"; sleep 1
+bash "$KIT/install/init-project.sh" --refresh > "$TMP/ref1.txt" 2>&1
+t "refresh with nothing to change writes nothing" '[ "$m1" = "$(stat -f %m AGENTS.md verify.sh 2>/dev/null || stat -c %Y AGENTS.md verify.sh)" ]'
+sed -i.bak 's/Map: skill `design-kit`/STALE/' AGENTS.md && rm -f AGENTS.md.bak
+bash "$KIT/install/init-project.sh" --refresh > "$TMP/ref2.txt" 2>&1
+t "refresh restores a stale kit block in place" 'grep -q "Map: skill \`design-kit\`" AGENTS.md && ! grep -q STALE AGENTS.md'
+python3 - verify.sh <<'PY'
+import re, sys; p = sys.argv[1]; t = open(p).read()
+open(p, "w").write(re.sub(r"# >>> design-kit.*?# <<< design-kit\n", "", t, flags=re.S))
+PY
+bash "$KIT/install/init-project.sh" --refresh > "$TMP/ref3.txt" 2>&1
+t "refresh never re-adds a verify step you removed" '! grep -q "# >>> design-kit" verify.sh'
+mkdir -p .claude/skills/apple-design && echo old > .claude/skills/apple-design/SKILL.md
+bash "$KIT/install/init-project.sh" --refresh > "$TMP/ref4.txt" 2>&1
+t "untracked project copy of a kit skill moved aside" '[ ! -e .claude/skills/apple-design ] && ls "$XDG_CONFIG_HOME"/design-kit/replaced/ | grep -q apple-design'
+
+echo "▶ always-latest links + update wiring"
+lrc=0; ( . "$KIT/install/lib.sh"
+  S="$TMP/skills"; mkdir -p "$S/old-skill" "$TMP/live/x"; echo "---" > "$TMP/live/x/SKILL.md"; echo mine > "$S/old-skill/SKILL.md"
+  link_skill "$TMP/live/x" "$S/old-skill" >/dev/null
+  [ -L "$S/old-skill" ] && [ "$(readlink "$S/old-skill")" = "$TMP/live/x" ] && ls "$DK_CONF/replaced" | grep -q old-skill ) || lrc=1
+t "a hand-installed copy is replaced by the live link (backed up, not deleted)" '[ "$lrc" = 0 ] && grep -rq mine "$XDG_CONFIG_HOME/design-kit/replaced/"'
+mkdir -p "$TMP/claude"; printf '{"hooks":{"SessionStart":[{"hooks":[{"type":"command","command":"/x/design-update --hook","timeout":10}]},{"hooks":[{"type":"command","command":"kit-update --if-stale 1 --background"}]}]}}\n' > "$TMP/claude/settings.json"
+( . "$KIT/install/lib.sh"; wire_claude_update_hook "$TMP/claude" >/dev/null; wire_claude_update_hook "$TMP/claude" >/dev/null )
+t "session hook migrates to --if-stale 1 --background, once, other hooks kept" 'python3 -c "
+import json,sys; s=json.load(open(sys.argv[1]))[\"hooks\"][\"SessionStart\"]; c=[h[\"command\"] for g in s for h in g[\"hooks\"]]
+d=[x for x in c if \"design-update\" in x]; sys.exit(0 if len(d)==1 and d[0].endswith(\"design-update --if-stale 1 --background\") and any(\"kit-update\" in x for x in c) else 1)" "$TMP/claude/settings.json"'
+mkdir -p "$XDG_CONFIG_HOME/design-kit"; date +%s > "$XDG_CONFIG_HOME/design-kit/last-update"
+t "--if-stale skips a fresh install instantly" '[ "$(cd "$TMP" && "$KIT/bin/design-update" --if-stale 1; echo $?)" = 0 ] && [ ! -s "$XDG_CONFIG_HOME/design-kit/update.log" ]'
 
 echo "▶ upstream overlays + hygiene"
 DKH="${DESIGN_KIT_HOME:-$HOME/.local/share/design-kit}"

@@ -1,0 +1,96 @@
+#!/usr/bin/env bash
+# design-webhook — push-based updates: a push to the Design Kit repo → Hermes webhook route →
+# design-update --force. Upstream repos you don't own can't send webhooks: the hourly schedule
+# and the session-start check cover those.
+#
+#   design-webhook enable [--url https://public-host]   # default: share the Skill Starter Kit's
+#                                                       # cloudflared tunnel (kit-webhook --tunnel)
+#   design-webhook status
+#   design-webhook disable
+#   design-webhook sync      # (design-update runs this) re-point GitHub if the tunnel URL moved
+set -uo pipefail
+SELF="$(python3 -c 'import os,sys;print(os.path.realpath(sys.argv[1]))' "${BASH_SOURCE[0]}")"
+KIT="$(cd "$(dirname "$SELF")/.." && pwd)"
+# shellcheck source=../install/lib.sh
+. "$KIT/install/lib.sh"
+HH="${HERMES_HOME:-$HOME/.hermes}"
+ROUTE=design-update
+PORT="${WEBHOOK_PORT:-8644}"
+MODE="$DK_CONF/webhook"                 # "tunnel" or "url <base>"
+POINTED="$DK_CONF/webhook-pointed"      # base URL GitHub currently calls
+SECRET="$DK_CONF/webhook-secret"
+TUNNEL_URL_FILE="${KIT_STATE_DIR:-$HOME/.config/skill-starter-kit}/tunnel-url"
+mkdir -p "$DK_CONF"
+origin="$(git -C "$KIT" remote get-url origin 2>/dev/null)"
+REPO="$(printf '%s' "$origin" | sed -E 's#(git@github.com:|https://github.com/)##; s#\.git$##')"
+
+base_url() {
+    case "$(cat "$MODE" 2>/dev/null)" in
+        tunnel) [ -s "$TUNNEL_URL_FILE" ] && cat "$TUNNEL_URL_FILE" ;;
+        url\ *) sed 's/^url //' "$MODE" ;;
+    esac
+}
+point_github() {  # $1 = base URL
+    local hook="$1/webhooks/$ROUTE" id
+    id="$(gh api "repos/$REPO/hooks" --jq ".[] | select(.config.url | endswith(\"/webhooks/$ROUTE\")) | .id" 2>/dev/null | head -1)"
+    if [ -n "$id" ]; then
+        gh api -X PATCH "repos/$REPO/hooks/$id" -F active=true -f "config[url]=$hook" -f config[content_type]=json -f "config[secret]=$(cat "$SECRET")" >/dev/null 2>&1
+    else
+        gh api -X POST "repos/$REPO/hooks" -f name=web -F active=true -f 'events[]=push' -f "config[url]=$hook" -f config[content_type]=json -f "config[secret]=$(cat "$SECRET")" >/dev/null 2>&1
+    fi
+    local rc=$?
+    if [ "$rc" = 0 ]; then echo "$1" > "$POINTED"; ok "GitHub webhook on $REPO → $hook"; else warn "could not set the GitHub webhook on $REPO (gh auth / admin rights?)"; fi
+    return "$rc"
+}
+
+case "${1:-status}" in
+enable)
+    shift; url=""
+    [ "${1:-}" = --url ] && url="${2%/}"
+    command -v hermes >/dev/null 2>&1 || { echo "✗ hermes CLI not found — the webhook runs through the Hermes gateway"; exit 1; }
+    command -v gh >/dev/null 2>&1 || { echo "✗ gh CLI not found — needed to create the GitHub webhook"; exit 1; }
+    mkdir -p "$HH/scripts"
+    cat > "$HH/scripts/design-update-webhook.sh" <<SH
+#!/usr/bin/env bash
+# design-webhook route script: GitHub push → design-update (background). [SILENT] = no agent run.
+payload="\$(cat)"
+ref="\$(printf '%s' "\$payload" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("ref",""))' 2>/dev/null)"
+case "\$ref" in refs/heads/main|refs/heads/master|"") "$DK_BIN/design-update" --force --background ;; esac
+echo "[SILENT]"
+SH
+    chmod +x "$HH/scripts/design-update-webhook.sh"; ok "route script → $HH/scripts/design-update-webhook.sh"
+    hermes config set platforms.webhook.enabled true >/dev/null
+    hermes config get platforms.webhook.extra.port 2>/dev/null | grep -q '[0-9]' || hermes config set platforms.webhook.extra.port "$PORT" >/dev/null
+    [ -s "$SECRET" ] || { openssl rand -hex 24 > "$SECRET"; chmod 600 "$SECRET"; }
+    hermes webhook list 2>/dev/null | grep -q "$ROUTE" && hermes webhook remove "$ROUTE" >/dev/null 2>&1
+    hermes webhook subscribe "$ROUTE" --events push --script design-update-webhook.sh --secret "$(cat "$SECRET")" \
+        --description "Design Kit: GitHub push → design-update" --prompt "design kit push {after}" >/dev/null 2>&1
+    hermes webhook list 2>/dev/null | grep -q "$ROUTE" || { echo "✗ hermes webhook subscribe failed (run: hermes gateway setup)"; exit 1; }
+    ok "hermes webhook route /webhooks/$ROUTE"
+    if [ -n "$url" ]; then echo "url $url" > "$MODE"
+    elif [ -s "$TUNNEL_URL_FILE" ]; then echo tunnel > "$MODE"; ok "sharing the Skill Starter Kit tunnel ($(cat "$TUNNEL_URL_FILE")) — re-pointed on every design-update"
+    else echo "✗ no public URL: pass --url https://<host> (or run kit-webhook enable --tunnel first)"; exit 1; fi
+    point_github "$(base_url)" || exit 1
+    curl -s -m 3 -o /dev/null "http://localhost:$PORT/health" && ok "gateway listening on :$PORT" || warn "gateway not listening on :$PORT — hermes gateway restart"
+    ;;
+sync)
+    [ -f "$MODE" ] || exit 0
+    b="$(base_url)"; [ -n "$b" ] || { warn "webhook: no public URL right now (tunnel down?) — schedule + session checks still run"; exit 0; }
+    [ "$b" = "$(cat "$POINTED" 2>/dev/null)" ] && { ok "push webhook → $b/webhooks/$ROUTE"; exit 0; }
+    point_github "$b"
+    ;;
+status)
+    [ -f "$MODE" ] || { say "  · push webhook off (design-webhook enable)"; exit 0; }
+    say "  · mode: $(cat "$MODE") · GitHub → $(cat "$POINTED" 2>/dev/null)/webhooks/$ROUTE"
+    hermes webhook list 2>/dev/null | grep -q "$ROUTE" && ok "hermes route $ROUTE" || warn "hermes route $ROUTE missing (design-webhook enable)"
+    curl -s -m 3 -o /dev/null "http://localhost:$PORT/health" && ok "gateway listening on :$PORT" || warn "gateway not listening on :$PORT"
+    ;;
+disable)
+    hermes webhook list 2>/dev/null | grep -q "$ROUTE" && hermes webhook remove "$ROUTE" >/dev/null 2>&1 && ok "route removed"
+    for id in $(gh api "repos/$REPO/hooks" --jq ".[] | select(.config.url | endswith(\"/webhooks/$ROUTE\")) | .id" 2>/dev/null); do
+        gh api -X DELETE "repos/$REPO/hooks/$id" >/dev/null 2>&1 && ok "GitHub webhook $id removed"
+    done
+    rm -f "$MODE" "$POINTED"
+    ;;
+*) sed -n '2,11p' "$SELF"; exit 1 ;;
+esac

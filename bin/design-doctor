@@ -19,8 +19,18 @@ for s in $KIT_SKILLS; do
     [ -d "$HOME/.claude" ] && chk "Claude Code: $s" "[ -e '$HOME/.claude/skills/$s/SKILL.md' ]"
     [ -d "$HOME/.hermes" ] && chk "Hermes: $s" "[ -e '$HOME/.hermes/skills/design/$s/SKILL.md' ]"
 done
-[ -d "$HOME/.claude" ] && chk "Claude Code session-start update hook" 'grep -q design-update "$HOME/.claude/settings.json"'
-command -v hermes >/dev/null && chk "Hermes session-start update hook" 'hermes config get --json hooks.on_session_start | grep -q design-update'
+[ -d "$HOME/.claude" ] && chk "Claude Code session-start update hook" 'grep -q "design-update --if-stale 1 --background" "$HOME/.claude/settings.json"'
+command -v hermes >/dev/null && chk "Hermes session-start update hook" 'hermes config get --json hooks.on_session_start | grep -q "design-update --if-stale 1 --background"'
+if [ "$(uname -s)" = Darwin ]; then chk "hourly update (launchd $DK_LABEL)" 'launchctl print "gui/$(id -u)/$DK_LABEL"'
+else chk "hourly update (systemd timer / cron)" 'systemctl --user is-active design-kit-update.timer || crontab -l | grep -q design-update'; fi
+chk "last update < 2h ago ($( [ -f "$DK_CONF/last-update" ] && date -r "$(cat "$DK_CONF/last-update")" "+%H:%M" ))" '[ $(( $(date +%s) - $(cat "$DK_CONF/last-update") )) -lt 7200 ]'
+for s in $KIT_SKILLS $(upstream_rows "$KIT" | cut -f1); do
+    for d in "$HOME/.claude/skills/$s" "$HOME/.hermes/skills/design/$s"; do
+        [ -e "$d" ] || [ -L "$d" ] || continue
+        chk "$d is the live copy" '[ -L "$d" ] && case "$(readlink "$d")" in "$KIT"/skills/*|"$DK_HOME"/skills/*) true ;; *) false ;; esac'
+    done
+done
+"$KIT/bin/design-webhook" status
 if git rev-parse --git-dir >/dev/null 2>&1; then
     say "repo: $(basename "$(git rev-parse --show-toplevel)")"
     chk ".agents/design-kit.json" '[ -f .agents/design-kit.json ]'

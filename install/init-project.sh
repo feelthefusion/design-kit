@@ -5,12 +5,20 @@
 #   .agents/design-banned.txt seeded from the negative rules in CLAUDE.md / AGENTS.md / DESIGN.md
 #   verify.sh                 "design gate" step (Skill Starter Kit verify.sh → Stop hook blocks done)
 #   AGENTS.md / CLAUDE.md     a short marked block pointing at the design-kit skill map
+#   .claude/skills/<kit skill> an untracked older copy that would shadow the live one is moved aside
+# The repo is registered, so design-update keeps its kit-owned blocks current:
+#   design-init --refresh     only the kit-owned blocks (what design-update runs); never your files
 set -euo pipefail
+REFRESH=0; [ "${1:-}" = --refresh ] && REFRESH=1
 KIT="$(cd "$(dirname "$(python3 -c 'import os,sys;print(os.path.realpath(sys.argv[1]))' "${BASH_SOURCE[0]}")")/.." && pwd)"
 # shellcheck source=lib.sh
 . "$KIT/install/lib.sh"
 ROOT="$(git rev-parse --show-toplevel 2>/dev/null)" || { echo "design-init: run inside a git repo"; exit 1; }
 cd "$ROOT"
+if [ "$REFRESH" = 1 ]; then
+    [ -f .agents/design-kit.json ] || { say "· $(basename "$ROOT"): not wired (no .agents/design-kit.json) — skipped"; exit 0; }
+    say "· $(basename "$ROOT")"
+else
 say "Design Kit → $(basename "$ROOT")"
 
 # ---- web app? --------------------------------------------------------------------------------
@@ -99,13 +107,17 @@ print(f"  · .agents/design-banned.txt ✓  {len(out)} rule(s) seeded from repo 
 PY
 else ok ".agents/design-banned.txt kept (yours)"; fi
 
+fi   # end of first-run-only setup (config, DESIGN.md, banned values)
+
 # ---- verify.sh ---------------------------------------------------------------------------------
 if [ -f verify.sh ]; then
-    python3 - verify.sh <<'PY'
+    python3 - verify.sh "$REFRESH" <<'PY'
 import re, sys
-p = sys.argv[1]; txt = open(p).read()
+p, refresh = sys.argv[1], sys.argv[2] == "1"; orig = txt = open(p).read()
 s, e = "# >>> design-kit", "# <<< design-kit"
-txt = re.sub(re.escape(s) + r".*?" + re.escape(e) + r"\n*", "", txt, flags=re.S)
+pat = re.compile(re.escape(s) + r".*?" + re.escape(e) + r"\n", re.S)
+had = bool(pat.search(txt))
+if refresh and not had: sys.exit()      # you removed the step: a refresh doesn't put it back
 block = f'''{s}
 if [ -f .agents/design-kit.json ]; then
   step "design gate"   # Design Kit: layout sweep, dead buttons, overlap, alignment, brand, type @ 375/768/1440
@@ -118,18 +130,21 @@ if [ -f .agents/design-kit.json ]; then
 fi
 {e}
 '''
-m = re.search(r"^printf '\\n✓ verify passed.*$", txt, flags=re.M)
-txt = txt[:m.start()] + block + "\n" + txt[m.start():] if m else txt.rstrip() + "\n\n" + block
-open(p, "w").write(txt)
-print("  · verify.sh += design gate step ✓ (the Stop hook now blocks done on design findings)")
+if had: txt = pat.sub(lambda m: block, txt, count=1)
+else:
+    m = re.search(r"^printf '\\n✓ verify passed.*$", txt, flags=re.M)
+    txt = txt[:m.start()] + block + "\n" + txt[m.start():] if m else txt.rstrip() + "\n\n" + block
+if txt != orig:
+    open(p, "w").write(txt)
+    print("  · verify.sh design gate step " + ("updated" if had else "added — the Stop hook now blocks done on design findings") + " ✓")
 PY
 else
-    warn "no verify.sh (Skill Starter Kit gate) here — run kit-init to get the Stop hook; until then run design-gate yourself"
+    [ "$REFRESH" = 1 ] || warn "no verify.sh (Skill Starter Kit gate) here — run kit-init to get the Stop hook; until then run design-gate yourself"
 fi
 
 # ---- gitignore + agent docs --------------------------------------------------------------------
 touch .gitignore
-grep -qxF '.design-kit/' .gitignore || { printf '\n# Design Kit (gate reports, server log, last-pass stamp)\n.design-kit/\n' >> .gitignore; ok ".gitignore += .design-kit/"; }
+grep -qxF '.design-kit/' .gitignore || [ "$REFRESH" = 1 ] || { printf '\n# Design Kit (gate reports, server log, last-pass stamp)\n.design-kit/\n' >> .gitignore; ok ".gitignore += .design-kit/"; }
 blk="$(mktemp)"
 cat > "$blk" <<'MD'
 ## Design Kit
@@ -137,8 +152,27 @@ cat > "$blk" <<'MD'
 - `verify.sh` runs `design-gate` (375/768/1440): layout, dead buttons, fixed/sticky overlap, alignment (icon vs text >1.5px, rows, heights, edges, padding, icon sizes), brand tokens + banned values, type rendering. Findings block done: fix at source, re-run. Intentional exceptions: `design-ok: <selector> — reason` in a comment.
 MD
 for f in AGENTS.md CLAUDE.md; do
-    if [ -f "$f" ] || [ "$f" = AGENTS.md ]; then write_marked_block "$f" "design-kit" "$blk"; ok "$f design-kit block"; fi
+    [ -f "$f" ] || { [ "$f" = AGENTS.md ] && [ "$REFRESH" = 0 ]; } || continue
+    [ "$REFRESH" = 1 ] && ! grep -q "<!-- design-kit:start -->" "$f" && continue
+    r="$(write_marked_block "$f" "design-kit" "$blk")"
+    [ "$r" = updated ] && ok "$f design-kit block"
 done
 rm -f "$blk"
-if v="$(git -C "$KIT" rev-parse --short=12 HEAD 2>/dev/null)"; then echo "$v" > .agents/.design-kit-version; fi
-say "✓ wired. Next: start the dev server and run  design-gate  (first run records the baseline)."
+
+# ---- project-level copies that would shadow the live skills ------------------------------------
+# Claude Code prefers .claude/skills/<name> in the repo over ~/.claude/skills. An UNTRACKED older
+# copy of a kit skill is moved aside so the live one loads; a committed one is yours — reported only.
+for name in $KIT_SKILLS $(upstream_rows "$KIT" | cut -f1); do
+    for d in .claude/skills/"$name" .agents/skills/"$name"; do
+        [ -e "$d" ] || [ -L "$d" ] || continue
+        if [ -n "$(git ls-files -- "$d" | head -1)" ]; then
+            warn "$d is committed in this repo and shadows the live $name — delete it (git rm -r $d) to get updates"
+        else
+            bk="$DK_CONF/replaced/$(basename "$ROOT")-$name.$(date +%Y%m%d-%H%M%S)"
+            mkdir -p "$DK_CONF/replaced"; mv "$d" "$bk"; ok "$d (untracked older copy) moved to $bk — the live $name loads now"
+        fi
+    done
+done
+if v="$(git -C "$KIT" rev-parse --short=12 HEAD 2>/dev/null)" && [ "$v" != "$(cat .agents/.design-kit-version 2>/dev/null)" ]; then echo "$v" > .agents/.design-kit-version; fi
+register_repo "$ROOT"
+[ "$REFRESH" = 1 ] || say "✓ wired (kept current by design-update). Next: start the dev server and run  design-gate."
