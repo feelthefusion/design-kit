@@ -43,6 +43,7 @@ State the reason in the code, next to the markup:
 - `design-ok: <css selector> — reason` in any comment in the source skips that selector in the rendered checks.
 - `data-design-ok="reason"` on an element (or one of its 3 nearest ancestors) does the same.
 - `design-ok` on a code line, or in a comment on the line above it, skips that line in the code checks.
+- `design-ok-file: reason` in a file's first lines skips the whole file in the code checks, for things like product art, illustrations and generated charts.
 - `.agents/design-ok.txt`: one `selector  # reason` per line, for third-party markup you can't comment.
 - impeccable's own inline ignores (`impeccable-disable-next-line <rule>: reason`) and `.impeccable/config.json` work too.
 

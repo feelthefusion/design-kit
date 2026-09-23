@@ -109,17 +109,20 @@ async function main() {
   if (on("brand")) {
     const scan = staticScan(REPO, cfg, tokens, banned);
     const rgb = await normalise(scan.colours.map((c) => c.value));
-    const off = new Map();
+    const off = new Map(), undocumented = [];
     scan.colours.forEach((c, i) => {
       if (!rgb[i]) return;
       const k = rgbKey(rgb[i]);
       const bi = bannedRgb.findIndex((b) => b && nearKey(b, k));
       if (bi >= 0) push({ check: "brand.banned", selector: `${c.file}:${c.line}`, px: null, msg: `banned colour ${c.value}${bannedColours[bi].note ? ` (${bannedColours[bi].note})` : ""}` }, "code", null);
       if (tokens.path && ![...paletteRgb].some((p) => nearKey(p, k))) {
+        if (c.def) { undocumented.push(c); return; }
         if (!off.has(c.value.toLowerCase())) off.set(c.value.toLowerCase(), []);
         off.get(c.value.toLowerCase()).push(c);
       }
     });
+    // stylesheet token definitions that DESIGN.md doesn't list: one finding — DESIGN.md is behind the code
+    if (undocumented.length) push({ check: "brand.token", selector: `${undocumented[0].file}:${undocumented[0].line}`, px: null, msg: `${undocumented.length} CSS colour token definition(s) are not in DESIGN.md (e.g. ${undocumented.slice(0, 3).map((c) => `${c.name ? `--${c.name} ` : ""}${c.value}`).join(", ")}): add them to DESIGN.md's front matter (\`design-tokens\` drafts it) or retire them` }, "code", null);
     for (const [v, list] of off) push({ check: "brand.token", selector: `${list[0].file}:${list[0].line}`, px: null, msg: `colour ${v} is not a DESIGN.md token (${list.length} use${list.length > 1 ? "s" : ""}${list.length > 1 ? `, also ${list.slice(1, 3).map((l) => `${l.file}:${l.line}`).join(", ")}` : ""})` }, "code", null);
     const allowedFonts = tokens.fonts.map((f) => f.toLowerCase());
     const GENERIC = /^(serif|sans-serif|monospace|system-ui|ui-[a-z-]+|inherit|initial|-apple-system|blinkmacsystemfont|cursive|fantasy|arial|helvetica|georgia|segoe ui|roboto|menlo|monaco|consolas|courier new)$/i;
@@ -172,11 +175,10 @@ async function main() {
   const external = [];
   for (const route of cfg.routes) {
     const url = new URL(route, cfg.url).href;
-    const timed = (name, fn) => async () => { const t = Date.now(); await fn(); if (process.env.DK_TIMING) log(`    ⏱ ${name} ${route} ${Math.round((Date.now() - t) / 1000)}s`); };
-    if (on("layout")) external.push(timed("layout", () => layoutSweep(url, route)));
-    if (on("impeccable")) external.push(timed("impeccable", () => impeccable(url, route)));
+    if (on("layout")) external.push(sweep("layout", route, (emit) => layoutSweep(url, route, emit)));
+    if (on("impeccable")) external.push(sweep("impeccable", route, (emit) => impeccable(url, route, emit)));
   }
-  const sweeps = pool(external, 2).then(() => (on("impeccable") ? impeccableSource() : null));
+  const sweeps = pool(external, 3).then(() => (on("impeccable") && Date.now() < deadline() ? impeccableSource() : null));
   for (const route of cfg.routes) {
     const url = new URL(route, cfg.url).href;
     for (const vw of cfg.viewports) {
@@ -207,11 +209,12 @@ async function main() {
     }
   }
   await sweeps;
+  if (pending.length) push({ check: "gate.incomplete", selector: "(run)", px: null, msg: `time budget (${+cfg.budget || 300}s) spent before ${pending.length} sweep(s): ${pending.join(", ")} — re-run design-gate; finished sweeps are cached, so it continues from here` }, "(all)", null);
   return finish(browser, t0);
 }
 
 // frontend-visual-qa's bundled Playwright sweep, all viewports, warnings count as failures
-function layoutSweep(url, route) {
+function layoutSweep(url, route, emit = push) {
   const script = path.join(HOME, "skills/frontend-visual-qa/scripts/visual_layout_audit.mjs");
   if (!fs.existsSync(script)) { log(`  ⚠ layout sweep skipped: ${script} missing (design-update fetches it)`); return Promise.resolve(); }
   const out = fs.mkdtempSync(path.join(os.tmpdir(), "dk-fvqa-"));
@@ -220,23 +223,44 @@ function layoutSweep(url, route) {
     const ch = spawn(process.execPath, args, { cwd: RUNTIME, env: { ...process.env, NODE_PATH: path.join(RUNTIME, "node_modules") } });
     let err = "";
     ch.stderr.on("data", (d) => (err += d)); ch.stdout.on("data", (d) => (err += d));
-    const timer = setTimeout(() => ch.kill("SIGKILL"), 240000);
+    const timer = setTimeout(() => ch.kill("SIGKILL"), Math.max(20000, deadline() - Date.now()));
     ch.on("close", () => {
       clearTimeout(timer);
       const rp = path.join(out, "frontend-visual-qa-report.json");
-      if (!fs.existsSync(rp)) { push({ check: "layout.run", selector: "(page)", px: null, msg: `layout sweep failed to run: ${err.trim().split("\n").slice(-2).join(" ").slice(0, 200)}` }, route, null); return resolve(); }
+      if (!fs.existsSync(rp)) { emit({ check: "layout.run", selector: "(page)", px: null, msg: `layout sweep failed to run: ${err.trim().split("\n").slice(-2).join(" ").slice(0, 200)}` }, route, null); return resolve(); }
       const rep = JSON.parse(fs.readFileSync(rp, "utf8"));
       for (const i of rep.issues || []) {
         if (/sr-only|visually-hidden|screen-reader/.test(i.selector || "")) continue;   // skip links are hidden until focused by design
         const name = String(i.viewport || "");
         const vw = +(name.match(/(\d{3,4})x\d+/)?.[1] || cfg.viewports[+(name.match(/(\d+)$/)?.[1] || 0) - 1] || 0) || null;
-        push({ check: `layout.${i.type}`, selector: i.selector || "(page)", px: null, msg: [i.detail, i.textEvidence?.text ? `"${String(i.textEvidence.text).slice(0, 40)}"` : ""].filter(Boolean).join(" ").slice(0, 220) || i.type }, route, vw);
+        emit({ check: `layout.${i.type}`, selector: i.selector || "(page)", px: null, msg: [i.detail, i.textEvidence?.text ? `"${String(i.textEvidence.text).slice(0, 40)}"` : ""].filter(Boolean).join(" ").slice(0, 220) || i.type }, route, vw);
       }
-      for (const e of rep.runErrors || []) push({ check: "layout.run", selector: "(page)", px: null, msg: e }, route, null);
+      for (const e of rep.runErrors || []) emit({ check: "layout.run", selector: "(page)", px: null, msg: e }, route, null);
       fs.rmSync(out, { recursive: true, force: true });
       resolve();
     });
   });
+}
+
+// Sweeps that drive their own browser (frontend-visual-qa, impeccable) are the slow part. Each
+// finished sweep is cached per UI fingerprint, and the run stops starting new ones once its time
+// budget (cfg.budget, default 300s — inside the Stop hook's 600s) is spent. Unfinished sweeps are a
+// blocking finding, never a pass: the next run replays the cache and continues where this stopped.
+const T0 = Date.now();
+const deadline = () => T0 + (+cfg.budget || 300) * 1000;
+const SWEEPS = path.join(STATE, "sweeps", fp);
+const pending = [];
+if (fs.existsSync(path.dirname(SWEEPS))) for (const d of fs.readdirSync(path.dirname(SWEEPS))) if (d !== fp) fs.rmSync(path.join(path.dirname(SWEEPS), d), { recursive: true, force: true });
+function sweep(kind, route, run) {
+  const file = path.join(SWEEPS, `${kind}-${route.replace(/[^a-z0-9]+/gi, "_") || "root"}.json`);
+  return async () => {
+    if (!flag("--force") && fs.existsSync(file)) { for (const f of JSON.parse(fs.readFileSync(file, "utf8"))) push(f.f, f.route, f.vw); return; }
+    if (Date.now() > deadline()) { pending.push(`${kind} ${route}`); return; }
+    const got = [], t = Date.now();
+    await run((f, r, vw) => { got.push({ f, route: r, vw }); push(f, r, vw); });
+    if (process.env.DK_TIMING) log(`    ⏱ ${kind} ${route} ${Math.round((Date.now() - t) / 1000)}s`);
+    if (!got.some((g) => /\.run$/.test(g.f.check))) { fs.mkdirSync(SWEEPS, { recursive: true }); fs.writeFileSync(file, JSON.stringify(got)); }
+  };
 }
 
 // the sweeps that drive their own browser run in a small pool, alongside the gate's own browser work
@@ -285,12 +309,12 @@ function impeccableRun(targets, extra = []) {
   return new Promise((resolve) => {
     const ch = spawn(bin, ["detect", "--json", "--no-advisory", ...extra, ...targets], { cwd: REPO });
     let out = "", err = "";
-    const timer = setTimeout(() => ch.kill("SIGKILL"), 180000);
+    const timer = setTimeout(() => ch.kill("SIGKILL"), Math.max(20000, deadline() - Date.now()));
     ch.stdout.on("data", (d) => (out += d)); ch.stderr.on("data", (d) => (err += d));
     ch.on("close", (code) => {
       clearTimeout(timer);
       if (code !== 0 && code !== 2) return resolve({ error: err.trim().split("\n").slice(-1)[0] || `exit ${code}` });
-      try { resolve(JSON.parse(out || "[]")); } catch { resolve([]); }
+      try { resolve(JSON.parse(out || "[]")); } catch { resolve({ error: `unreadable detector output: ${out.slice(0, 120)}` }); }
     });
   });
 }
@@ -310,15 +334,17 @@ function impKeep(f) {
   return true;
 }
 const impSel = (f) => (f.snippet ? `"${String(f.snippet).slice(0, 90)}"` : "(page)");
-async function impeccable(url, route) {
+async function impeccable(url, route, emit = push) {
   if (target_is_http(cfg.url)) url = new URL(route, await startProxy()).href;
-  for (const vw of cfg.viewports) {
+  // impeccable's detectors are page-level (contrast, headings, padding, line length), so one
+  // phone-width pass covers them; the gate's own checks do the per-viewport geometry
+  for (const vw of cfg.impeccableViewports || [Math.min(...cfg.viewports)]) {
     const args = ["--viewport", `${vw}x${HEIGHT[vw] || Math.round(vw * 1.6)}`];
     let res = await impeccableRun([url], args);
     if (res?.error && /WS endpoint|Target closed|ECONNRESET|timed? ?out/i.test(res.error)) res = await impeccableRun([url], args);   // a busy machine: one relaunch
     if (!res) return;
-    if (res.error) { push({ check: "impeccable.run", selector: "(page)", px: null, msg: res.error }, route, vw); continue; }
-    for (const f of res) if (impKeep(f)) { impSeen.add(`${f.antipattern}|${f.snippet}`); push({ check: `impeccable.${f.antipattern}`, selector: impSel(f), px: null, msg: f.name }, route, vw); }
+    if (res.error) { emit({ check: "impeccable.run", selector: "(page)", px: null, msg: res.error }, route, vw); continue; }
+    for (const f of res) if (impKeep(f)) { impSeen.add(`${f.antipattern}|${f.snippet}`); emit({ check: `impeccable.${f.antipattern}`, selector: impSel(f), px: null, msg: f.name }, route, vw); }
   }
 }
 async function impeccableSource() {

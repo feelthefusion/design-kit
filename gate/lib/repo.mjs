@@ -178,7 +178,9 @@ export function staticScan(repo, cfg, tokens, banned) {
   const sizeTokens = new Set(tokens.fontSizes.map(norm));
   for (const f of [...files, ...tw]) {
     const rel = path.relative(repo, f);
-    const lines = fs.readFileSync(f, "utf8").split("\n");
+    const src = fs.readFileSync(f, "utf8");
+    if (/design-ok-file\b/i.test(src.slice(0, 600))) continue;   // `design-ok-file: product art, not UI` in the file's first lines
+    const lines = src.split("\n");
     const state = { block: false };
     let prevComment = "";
     const isCss = /\.(s?css)$/.test(f);
@@ -188,15 +190,17 @@ export function staticScan(repo, cfg, tokens, banned) {
       prevComment = comment;
       if (ok || !code.trim()) return;
       if (/^\s*(import|export \* from)\b/.test(code) || /url\(\s*["']?data:/.test(code)) return;
+      const def = isCss && /^\s*--[\w-]+\s*:/.test(code);   // a CSS token DEFINITION, not a use
+      const name = def ? code.match(/--([\w-]+)/)[1] : undefined;
       for (const m of code.matchAll(HEX)) {
         const before = code.slice(Math.max(0, m.index - 12), m.index);
         if (/(href|to|id|path)=\{?["'`]$/.test(before) || /[\w/]$/.test(before.slice(-1))) continue;   // "#top", "a/#x"
-        colours.push({ value: m[0], file: rel, line: i + 1 });
+        colours.push({ value: m[0], file: rel, line: i + 1, def, name });
       }
-      for (const m of code.matchAll(FUNC)) if (!/var\(/.test(m[0]) && !/\$\{/.test(m[0])) colours.push({ value: m[0], file: rel, line: i + 1 });
+      for (const m of code.matchAll(FUNC)) if (!/var\(/.test(m[0]) && !/\$\{/.test(m[0])) colours.push({ value: m[0], file: rel, line: i + 1, def, name });
       if (isCss) {
         const tri = code.match(/^\s*--[\w-]+:\s*(\d{1,3}(?:\.\d+)?)\s+(\d{1,3}(?:\.\d+)?)%\s+(\d{1,3}(?:\.\d+)?)%\s*;/);
-        if (tri) colours.push({ value: `hsl(${tri[1]} ${tri[2]}% ${tri[3]}%)`, file: rel, line: i + 1 });
+        if (tri) colours.push({ value: `hsl(${tri[1]} ${tri[2]}% ${tri[3]}%)`, file: rel, line: i + 1, def: true, name: code.match(/--([\w-]+)/)[1] });
         const ff = code.match(/font-family:\s*([^;}{]+)/);
         if (ff && !/var\(/.test(ff[1].split(",")[0]) && !/@font-face/.test(lines.slice(Math.max(0, i - 6), i + 1).join(" ")))
           fonts.push({ value: ff[1].split(",")[0].trim().replace(/^["']|["']$/g, ""), file: rel, line: i + 1 });

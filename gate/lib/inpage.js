@@ -138,7 +138,11 @@ export function inpageChecks(opts) {
     } else if (ir.bottom <= lr.top + 1 && lr.top - ir.bottom <= 24) {
       // stacked (icon above label): centred horizontally on the label line
       const block = line.el;
-      if (cs(block).textAlign === "center" || cs(ic.parentElement).alignItems === "center") {
+      let common = ic.parentElement;
+      while (common && !common.contains(block)) common = common.parentElement;
+      const ccs = common ? cs(common) : null;
+      const colCentred = ccs && ccs.display.includes("flex") && ccs.flexDirection.startsWith("column") && ccs.alignItems === "center";
+      if (cs(block).textAlign === "center" || colCentred) {
         const lineRange = document.createRange();
         lineRange.selectNodeContents(block);
         const lr0 = lineRange.getClientRects()[0] || lr;
@@ -495,7 +499,11 @@ export function inpageChecks(opts) {
     const fb = stack.slice(1).find((x) => faceByFam.has(x) && (faceByFam.get(x).sizeAdjust !== "100%" || faceByFam.get(x).ascentOverride !== "normal"));
     if (!fb && !noFallback.has(stack[0])) noFallback.set(stack[0], el);
   }
-  for (const [fam, el] of noFallback) add("type.fallback", el, null, `"${fam}" has no metric-matched fallback in its stack: add an @font-face on local("Arial") with size-adjust / ascent-override / descent-override so text does not reflow when the font loads`);
+  for (const [fam, el] of noFallback) {
+    const stack = cs(el).fontFamily.toLowerCase();
+    const base = /monospace/.test(stack) ? "Courier New" : /(^|,)\s*serif\b/.test(stack) ? "Times New Roman" : "Arial";
+    add("type.fallback", el, null, `"${fam}" has no metric-matched fallback in its stack: add an @font-face on local("${base}") with size-adjust / ascent-override / descent-override (from @capsizecss/metrics or Fontaine) so text does not reflow when the font loads`);
+  }
   const preloads = document.querySelectorAll('link[rel="preload"][as="font"]').length;
   if (preloads > 3) add("type.preload", document.head, null, `${preloads} font preloads: preload only the primary text face (and the above-the-fold control face); the rest compete with the LCP image`);
   // figures in table columns align only when tabular

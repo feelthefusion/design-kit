@@ -33,6 +33,9 @@ export function candidatesInPage(opts) {
     if (s.visibility === "hidden" || s.pointerEvents === "none" || Number(s.opacity) === 0) continue;
     if (el.closest('[aria-hidden="true"], [inert]')) continue;
     if (ok(el)) continue;
+    // a button inside a link to the page you're on (a "Home" tab on /) is correctly a no-op
+    const link = el.closest("a[href]");
+    if (link) { try { const u = new URL(link.href, location.href); if (u.origin === location.origin && u.pathname === location.pathname && u.search === location.search) continue; } catch {} }
     const text = (el.getAttribute("aria-label") || el.textContent || el.getAttribute("title") || el.value || "").replace(/\s+/g, " ").trim().slice(0, 50);
     out.push({ sel: sel(el), text, tag: el.tagName.toLowerCase(), hash: el.getAttribute("href") === "#" });
   }
