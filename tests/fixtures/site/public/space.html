@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Whitespace + centring fixture</title>
+<style>
+  html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
+  body { margin: 0; font-family: Arial, sans-serif; color: #111827; background: #FFFFFF; -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale; line-height: 1.5; }
+  main { max-width: 960px; margin: 0 auto; padding: 32px 16px; }
+  p { margin: 0 0 16px; }
+  :focus-visible { outline: 2px solid #2563EB; outline-offset: 2px; }
+  .pill { display: inline-block; height: 28px; line-height: 16px; padding: 0 12px; border-radius: 9999px; background: #F3F4F6; font-size: 13px; }   /* label sits high */
+  .wide-pill { display: inline-flex; align-items: center; width: 160px; height: 28px; padding: 0 12px; border-radius: 9999px; background: #F3F4F6; font-size: 13px; } /* label left in a fixed-width pill */
+  .icon-btn { display: inline-flex; align-items: center; justify-content: center; width: 40px; height: 40px; border-radius: 9999px; border: 1px solid #D1D5DB; background: #F3F4F6; padding: 0; }
+  .icon-btn svg { width: 16px; height: 16px; margin-left: 8px; }                  /* glyph right of centre */
+  .void { height: 520px; }                                                          /* vertical void */
+  .grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; margin-bottom: 16px; }
+  .grid > div { background: #F3F4F6; min-height: 140px; padding: 16px; }         /* 4 cards in 3 columns */
+  .narrow { max-width: 360px; }                                                    /* hugs the left at desktop */
+  .tall { display: flex; gap: 16px; align-items: stretch; margin-bottom: 16px; }
+  .tall > div { flex: 1; background: #F3F4F6; padding: 16px; }                    /* short card stretched */
+</style></head>
+<body><main>
+  <h1>Whitespace + centring</h1>
+  <p><span class="pill" id="high">New</span> <span class="wide-pill">Left label</span>
+     <button class="icon-btn" type="button" aria-label="Search" onclick="document.body.dataset.s=1"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" fill="#111827"/></svg></button></p>
+  <div class="void"></div>
+  <div class="grid"><div>One</div><div>Two</div><div>Three</div><div>Four</div></div>
+  <div class="narrow">
+    <p>A narrow column of copy that leaves the whole right side of a desktop page empty for a long stretch of scrolling.</p>
+    <p>It keeps going, line after line, while the other half of the screen stays blank, the layout the rule forbids.</p>
+    <p>More of the same, so the empty block is well over the height limit at every desktop width checked by the gate.</p>
+    <p>And one more paragraph to make the empty side unmistakable.</p>
+  </div>
+  <div class="tall">
+    <div><p>Short card.</p></div>
+    <div><p>Long card with a lot of copy.</p><p>Line</p><p>Line</p><p>Line</p><p>Line</p><p>Line</p><p>Line</p><p>Line</p><p>Line</p><p>Line</p></div>
+  </div>
+</main></body></html>

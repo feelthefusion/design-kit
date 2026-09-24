@@ -21,6 +21,13 @@ One owner per job. Tokens flow from DESIGN.md into the build, and the gate check
 
 Browser driving and screenshots belong to **browser-verify** (Skill Starter Kit). Brand voice and product context belong to Marketing Kit's `.agents/brand-context.md` and `.agents/product-marketing.md`, and this kit reads them rather than keeping its own copy.
 
+## Always
+
+- **No voids.** Never leave empty or over-sized space on any page at any width. Reorganise the layout, tighten it to the spacing scale, or fill it with real content that earns the space. Never use filler.
+- **Centred things are centred on their ink.** That covers copy in pills, badges, chips and buttons, digits in count bubbles, and glyphs in icon buttons.
+
+The gate enforces both (`space.*`, `align.centre`). **design-gate** has the fixes.
+
 ## Workflow
 
 1. There's no DESIGN.md, or the brand changed: run **design-direction** (`design-tokens` drafts front matter from the code).

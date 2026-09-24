@@ -61,7 +61,7 @@ try { ({ chromium } = req("playwright")); } catch {
 }
 
 // ---------- server ----------
-async function up(u) { try { const r = await fetch(u, { signal: AbortSignal.timeout(3000) }); return r.status < 500; } catch { return false; } }
+async function up(u) { try { const r = await fetch(u, { signal: AbortSignal.timeout(15000) }); return r.status < 500; } catch { return false; } }
 let server = null;
 async function ensureServer() {
   if (await up(cfg.url)) return true;
@@ -193,9 +193,20 @@ async function main() {
         await page.waitForTimeout(500);
       } catch (e) { push({ check: "page.load", selector: "(page)", px: null, msg: `could not load: ${String(e.message).split("\n")[0]}` }, route, vw); await page.close(); continue; }
       for (const e of [...new Set(loadErrs)]) push({ check: "page.error", selector: "(page)", px: null, msg: `uncaught script error on load: ${e.slice(0, 160)}` }, route, vw);
-      const opts = { vw, palette: tokens.path ? tokens.colors : [], fonts: tokens.path ? tokens.fonts : [], banned, allow, phase: "top" };
-      const want = (f) => (f.check.startsWith("align") || f.check.startsWith("spacing") ? on("align") : f.check.startsWith("overlap") ? on("overlap") : f.check.startsWith("brand") ? on("brand") : f.check.startsWith("type") ? on("type") : true);
-      if (["align", "overlap", "brand", "type"].some(on)) {
+      const opts = { vw, palette: tokens.path ? tokens.colors : [], fonts: tokens.path ? tokens.fonts : [], banned, allow, phase: "top", whitespace: cfg.whitespace || {} };
+      const want = (f) => (f.check.startsWith("align") || f.check.startsWith("spacing") ? on("align") : f.check.startsWith("overlap") ? on("overlap") : f.check.startsWith("brand") ? on("brand") : f.check.startsWith("type") ? on("type") : f.check.startsWith("space") ? on("space") : true);
+      if (["align", "overlap", "brand", "type", "space"].some(on)) {
+        if (on("space")) {   // scroll through once so lazy / reveal-on-scroll sections exist before voids are measured
+          await page.evaluate(async () => {
+            const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+            for (const i of document.querySelectorAll('img[loading="lazy"]')) i.loading = "eager";
+            const se = document.scrollingElement;
+            for (let i = 0; i < 60 && se.scrollTop + innerHeight < se.scrollHeight; i++) { se.scrollTop += innerHeight; await wait(100); }
+            const pending = [...document.images].filter((i) => !i.complete).map((i) => new Promise((r) => { i.addEventListener("load", r, { once: true }); i.addEventListener("error", r, { once: true }); }));
+            await Promise.race([Promise.all(pending), wait(5000)]);
+            se.scrollTop = 0; await wait(200);
+          });
+        }
         for (const f of await page.evaluate(inpageChecks, opts)) if (want(f)) push(f, route, vw);
         if (on("overlap")) {
           await page.evaluate(() => { for (const s of [document.scrollingElement, document.body, ...document.querySelectorAll("main, [data-scroll-container]")]) if (s) s.scrollTop = s.scrollHeight; });

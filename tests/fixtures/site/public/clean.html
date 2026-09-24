@@ -11,7 +11,12 @@
   .btn { display: inline-flex; align-items: center; gap: 8px; height: 44px; padding: 0 16px; border-radius: 9999px; border: 1px solid #D1D5DB; background: #F3F4F6; color: #111827; font: inherit; cursor: pointer; }
   .btn svg { width: 16px; height: 16px; }
   :focus-visible { outline: 2px solid #2563EB; outline-offset: 2px; }
-  .out { padding: 16px; background: #F3F4F6; border-radius: 8px; }
+  .out { padding: 16px; background: #F3F4F6; border-radius: 8px; margin-bottom: 32px; }
+  .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 16px; margin-bottom: 32px; }
+  .card { padding: 16px; background: #F3F4F6; border-radius: 8px; }
+  .card h2 { font-size: 18px; margin: 0 0 8px; }
+  .pill { display: inline-flex; align-items: center; height: 24px; padding: 0 10px; border-radius: 9999px; background: #FFFFFF; font-size: 13px; }
+  footer { border-top: 1px solid #D1D5DB; padding: 24px 16px; max-width: 960px; margin: 0 auto; }
 </style></head>
 <body><main>
   <h1>Clean page</h1>
@@ -21,7 +26,18 @@
     <button class="btn" id="b" type="button">Hide</button>
   </div>
   <div class="out" id="out">Ready</div>
+  <div class="cards">
+    <div class="card"><h2>Section 1</h2><p>Short copy that fills the card evenly, the same length in every card so heights match.</p><span class="pill">Tag 1</span></div>
+    <div class="card"><h2>Section 2</h2><p>Short copy that fills the card evenly, the same length in every card so heights match.</p><span class="pill">Tag 2</span></div>
+    <div class="card"><h2>Section 3</h2><p>Short copy that fills the card evenly, the same length in every card so heights match.</p><span class="pill">Tag 3</span></div>
+    <div class="card"><h2>Section 4</h2><p>Short copy that fills the card evenly, the same length in every card so heights match.</p><span class="pill">Tag 4</span></div>
+    <div class="card"><h2>Section 5</h2><p>Short copy that fills the card evenly, the same length in every card so heights match.</p><span class="pill">Tag 5</span></div>
+    <div class="card"><h2>Section 6</h2><p>Short copy that fills the card evenly, the same length in every card so heights match.</p><span class="pill">Tag 6</span></div>
+  </div>
+  <p>More copy under the cards, so the page fills a desktop screen without leaving a void above the footer. It runs long enough to span the column at every width the gate checks.</p>
+  <p>A second paragraph keeps the rhythm going: content, not padding, is what fills the space here. Real pages do the same with related products, proof and a clear next step.</p>
 </main>
+<footer><p>Footer, clean fixture</p></footer>
 <script>
   document.getElementById("a").onclick = () => { document.getElementById("out").textContent = "Shown"; };
   document.getElementById("b").onclick = () => { document.getElementById("out").textContent = "Hidden"; };

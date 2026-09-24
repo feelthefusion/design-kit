@@ -149,7 +149,8 @@ blk="$(mktemp)"
 cat > "$blk" <<'MD'
 ## Design Kit
 - Map: skill `design-kit`. Direction → `docs/DESIGN.md` (design-direction, Google design-md) · build → Taste from DESIGN.md · review → web-design-guidelines, frontend-visual-qa (fix-and-rerun), impeccable · type → type-rendering · speed → core-web-vitals.
-- `verify.sh` runs `design-gate` (375/768/1440): layout, dead buttons, fixed/sticky overlap, alignment (icon vs text >1.5px, rows, heights, edges, padding, icon sizes), brand tokens + banned values, type rendering. Findings block done: fix at source, re-run. Intentional exceptions: `design-ok: <selector> — reason` in a comment.
+- Always, at every width: **no voids.** Never leave empty or over-sized space. Reorganise (side by side, grids that fill, no stretched half-empty cards), tighten to the spacing scale, or fill it with real content that earns the space, never filler. **Centred means centred on the ink:** copy in pills, badges, chips and buttons, digits in count bubbles, glyphs in icon buttons (`text-box: trim-both cap alphabetic` / font metric overrides, symmetric padding, no 1px nudges).
+- `verify.sh` runs `design-gate` (375/768/1440): layout, dead buttons, fixed/sticky overlap, alignment (icon vs text >1.5px, rows, heights, edges, padding, icon sizes, centring), whitespace (gaps, one-sided layouts, orphaned grid cells, half-empty cards, short pages), brand tokens + banned values, type rendering. Findings block done: fix at source, re-run. Intentional exceptions: `design-ok: <selector> — reason` in a comment.
 MD
 for f in AGENTS.md CLAUDE.md; do
     [ -f "$f" ] || { [ "$f" = AGENTS.md ] && [ "$REFRESH" = 0 ]; } || continue

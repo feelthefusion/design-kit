@@ -23,7 +23,7 @@ DESIGN.md is the single source of design truth. Taste builds from it, the gate e
 |---|---|---|
 | Colour | `colors:` every ink, surface, line, accent, state; dark theme as `*-dark` | roles, contrast pairs (≥4.5:1 text), where the accent is allowed |
 | Type | `typography:` per role: `fontFamily`, `fontSize`, `fontWeight`, `lineHeight`, `letterSpacing` | the ladder, weights in use, rendering rules (see **type-rendering**) |
-| Spacing | `spacing:` the scale | section rhythm, container widths, the symmetric-padding rule |
+| Spacing | `spacing:` the scale | section rhythm, container widths, the symmetric-padding rule, the largest allowed gap per breakpoint (no voids: the gate's `space.*` limit), how grids fill their last row, and how short pages are filled |
 | Radius | `rounded:` | which element gets which radius |
 | Motion | `motion:` durations, easings/springs (e.g. `fast: 150ms`, `ease: "cubic-bezier(.2,.8,.2,1)"`) | what animates, what never does, the reduced-motion fallback (**apple-design**) |
 | Icons | `icons:` set, stroke, sizes (e.g. `set: phosphor`, `stroke: 1.5`, `sizes: [14, 16, 20]`) | one set only, size per context, optical centring on text |

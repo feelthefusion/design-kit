@@ -88,7 +88,7 @@ export function inpageChecks(opts) {
     if (metricCache.has(font)) return metricCache.get(font);
     ctx.font = font;
     const m = ctx.measureText("H");
-    const v = { ascent: m.fontBoundingBoxAscent, cap: m.actualBoundingBoxAscent };
+    const v = { ascent: m.fontBoundingBoxAscent, cap: m.actualBoundingBoxAscent, xh: ctx.measureText("x").actualBoundingBoxAscent };
     metricCache.set(font, v);
     return v;
   }
@@ -285,6 +285,70 @@ export function inpageChecks(opts) {
       if (Math.abs(pt - pb) > 1) add("spacing.padding", el, Math.abs(pt - pb), `vertical padding is asymmetric: top ${round(pt)}px vs bottom ${round(pb)}px`);
     }
   }
+
+
+  // 5b. centred content: labels in pills / badges / buttons / chips, glyphs in icon-only controls ---
+  // Measured on the INK (cap height on the baseline, or x-height for all-lowercase), not the line box,
+  // so a font whose metrics sit high is caught even when the padding is symmetric.
+  const boxedEl = (s) => !transparent(s.backgroundColor) || parseFloat(s.borderTopWidth) > 0 || parseFloat(s.borderLeftWidth) > 0 || (s.boxShadow && s.boxShadow !== "none");
+  const PILL = /badge|chip|pill|tag|count|bubble|avatar|dot/i;
+  const centreSeen = new Map();
+  for (const el of all) {
+    const tag = el.tagName.toLowerCase();
+    if (["input", "select", "textarea", "svg", "img", "html", "body"].includes(tag) || el.closest("svg")) continue;
+    if (!visible(el)) continue;
+    const r = el.getBoundingClientRect();
+    if (r.height < 12 || r.height > 72 || r.width > 480) continue;
+    const s = cs(el);
+    if (!boxedEl(s) || (s.transform && s.transform !== "none" && !/^matrix\(1, 0, 0, 1,/.test(s.transform))) continue;
+    const cls = el.className?.baseVal ?? el.className ?? "";
+    const round_ = parseFloat(s.borderTopLeftRadius) >= r.height / 2 - 1;
+    if (!(isButtonLike(el) || PILL.test(cls) || round_)) continue;
+    // own content only: text + icons not inside a nested boxed element (a pill inside a button is its own check)
+    const ownerOf = (n) => { for (let p = n.nodeType === 1 ? n : n.parentElement; p && p !== el; p = p.parentElement) if (boxedEl(cs(p))) return p; return el; };
+    const lines = [];
+    const w = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
+    for (let n = w.nextNode(); n; n = w.nextNode()) {
+      const txt = n.textContent; if (!txt.trim() || n.parentElement?.closest("svg") || ownerOf(n) !== el || !visible(n.parentElement)) continue;
+      const a = txt.search(/\S/), b = txt.length - txt.trimEnd().length;
+      const rg = document.createRange(); rg.setStart(n, a); rg.setEnd(n, txt.length - b);
+      for (const rr of rg.getClientRects()) if (rr.width > 0) lines.push({ rr, pe: n.parentElement, txt: txt.trim() });
+    }
+    const ics = icons.filter((i) => el.contains(i) && ownerOf(i) === el && cs(i).position !== "absolute");
+    if (!lines.length && ics.length !== 1) continue;
+    if (lines.length && new Set(lines.map((l) => Math.round(l.rr.top))).size > 1) continue;   // wraps: not a one-line label
+    let L = Infinity, R = -Infinity, Tp = Infinity, B = -Infinity;
+    for (const l of lines) {
+      const m = metrics(l.pe); const base = l.rr.top + m.ascent;
+      const h = /[A-Z0-9]/.test(l.txt) ? m.cap : m.xh;
+      L = Math.min(L, l.rr.left); R = Math.max(R, l.rr.right); Tp = Math.min(Tp, base - h); B = Math.max(B, base);
+    }
+    for (const i of ics) {
+      const ir = i.getBoundingClientRect();
+      L = Math.min(L, ir.left); R = Math.max(R, ir.right);
+      if (!lines.length) { Tp = ir.top; B = ir.bottom; }            // with text, icon-vs-label is align.icon-label's job
+    }
+    if (!isFinite(L) || !isFinite(Tp)) continue;
+    const inL = r.left + parseFloat(s.borderLeftWidth), inR = r.right - parseFloat(s.borderRightWidth);
+    const inT = r.top + parseFloat(s.borderTopWidth), inB = r.bottom - parseFloat(s.borderBottomWidth);
+    if (L < inL - 1 || R > inR + 1) continue;                          // content overflows: overlap / clipping, not centring
+    const what = !lines.length ? "icon" : "label";
+    const kind = !lines.length ? "icon button" : PILL.test(cls) || (round_ && !isButtonLike(el)) ? "pill" : "button";
+    const slack = (inR - parseFloat(s.paddingRight)) - (inL + parseFloat(s.paddingLeft)) - (R - L);   // room inside the CONTENT box
+    const centredH = s.textAlign === "center" || s.justifyContent === "center" || s.placeContent?.includes("center") || s.justifyItems === "center"
+      || (!lines.length) || slack <= 2;
+    const dx = ((L - inL) - (inR - R)) / 2, dy = ((Tp + B) / 2) - ((inT + inB) / 2);
+    const key = (k, v) => `${k}|${tag}|${cls}|${Math.round(v)}`;
+    const report = (k, v, msg) => { const kk = key(k, v); if (centreSeen.has(kk)) { centreSeen.get(kk).n++; return; } const f = { n: 1 }; centreSeen.set(kk, f); add("align.centre", el, Math.abs(v), msg); f.i = out.length - 1; };
+    if (!centredH && slack > 4 && lines.length)
+      report("h-intent", slack, `${what} is not centred in its ${kind}: ${round(slack)}px of slack all on one side (set justify-content / text-align: center)`);
+    else if (centredH && Math.abs(dx) > T)
+      report("h", dx, `${what}${label(el)} sits ${round(Math.abs(dx))}px ${dx < 0 ? "left" : "right"} of centre in its ${kind}`);
+    if (Math.abs(dy) > T)
+      report("v", dy, `${what}${label(el)} sits ${round(Math.abs(dy))}px ${dy < 0 ? "high" : "low"} in its ${kind} (${!lines.length ? "glyph box" : "cap-height"} centre vs box centre)` +
+        (lines.length ? ` — trim the line box (text-box: trim-both cap alphabetic) or fix the face's ascent/descent-override, then keep padding symmetric` : ""));
+  }
+  for (const f of centreSeen.values()) if (f.n > 1 && out[f.i]) out[f.i].msg += ` (+${f.n - 1} more like it)`;
 
   // 6. one icon size per group ---------------------------------------------------------------
   const groups = new Map();
@@ -513,6 +577,140 @@ export function inpageChecks(opts) {
     if (cells.length < 3) continue;
     const bad = cells.filter((td) => !/tabular-nums/.test(cs(td).fontVariantNumeric));
     if (bad.length) add("type.tabular", bad[0], null, `${bad.length} numeric table cell(s) use proportional figures: set font-variant-numeric: tabular-nums so columns align`);
+  }
+
+  // ---------- whitespace: no voids — fill them or reorganise ----------
+  // Ink = what a reader sees: text, media, controls, background images. Empty coloured panels are
+  // still empty. Layout presence only (opacity ignored) so reveal-on-scroll content still counts.
+  if (opts.phase === "top") {
+    const vw = innerWidth, vh = innerHeight, sy = scrollY, sx = scrollX;
+    const ws = opts.whitespace || {};
+    const MAXGAP = ws.maxGap ?? (vw < 600 ? 160 : vw < 1100 ? 200 : 240);
+    const fixedCache = new Map();
+    const pinned = (el) => {
+      if (!el || el === document.body) return false;
+      if (fixedCache.has(el)) return fixedCache.get(el);
+      const p = cs(el).position; const v = p === "fixed" || p === "sticky" || pinned(el.parentElement);
+      fixedCache.set(el, v); return v;
+    };
+    const laid = (el) => { const s = cs(el); return s.display !== "none" && s.visibility !== "hidden"; };
+    const ink = [], blockInk = [];   // blockInk: the LAYOUT footprint (a paragraph's box, not its ragged lines)
+    const toDoc = (r, el) => ({ l: r.left + sx, r: r.right + sx, t: r.top + sy, b: r.bottom + sy, el });
+    const pushR = (r, el) => { if (r.width >= 2 && r.height >= 2) ink.push(toDoc(r, el)); };
+    const blockSeen = new Set();
+    const blockOf = (el) => { for (let p = el; p && p !== document.body; p = p.parentElement) if (!cs(p).display.startsWith("inline") && cs(p).display !== "contents") return p; return document.body; };
+    const pushBlock = (el) => { if (blockSeen.has(el)) return; blockSeen.add(el); const r = el.getBoundingClientRect(); if (r.width >= 2 && r.height >= 2) blockInk.push(toDoc(r, el)); };
+    const tw = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
+    let tn = 0;
+    for (let n = tw.nextNode(); n && tn < 6000; n = tw.nextNode()) {
+      const pe = n.parentElement;
+      if (!n.textContent.trim() || !pe || pe.closest("script,style,noscript,template,[aria-hidden=true] .sr-only,.sr-only,[hidden]") || !laid(pe) || pinned(pe)) continue;
+      tn++;
+      const rg = document.createRange(); rg.selectNodeContents(n);
+      for (const rr of rg.getClientRects()) pushR(rr, pe);
+      pushBlock(blockOf(pe));
+    }
+    for (const el of all) {
+      const tag = el.tagName.toLowerCase();
+      const media = ["img", "video", "canvas", "iframe", "picture", "input", "select", "textarea", "button", "hr"].includes(tag) || (tag === "svg" && !el.parentElement?.closest("svg")) || el.getAttribute("role") === "img";
+      const bi = cs(el).backgroundImage, br = el.getBoundingClientRect();
+      const bgImg = !media && (/url\(/.test(bi) || (/gradient\(/.test(bi) && br.width < vw * 0.9 && br.height < vh));   // photos, and gradient ART (not full-bleed section washes)
+      if (!(media || bgImg) || !laid(el) || pinned(el)) continue;
+      let rr = el.getBoundingClientRect();
+      if (tag === "img" && rr.width < 2 && rr.height >= 2 && el.parentElement) rr = el.parentElement.getBoundingClientRect();   // not decoded yet: it will fill its frame
+      pushR(rr, el); pushBlock(el);
+    }
+    for (const el of all) if (laid(el) && !pinned(el) && boxedEl(cs(el))) { const r = el.getBoundingClientRect(); if (r.height < vh && r.width < vw * 0.98) pushBlock(el); }   // panels & cards occupy their space
+    const docH = Math.max(document.documentElement.scrollHeight, document.body.scrollHeight);
+    // smallest laid-out element that contains a doc-space rect (names the finding)
+    const holder = (x0, y0, x1, y1) => {
+      let best = null, area = Infinity;
+      for (const el of all) {
+        const r = el.getBoundingClientRect(); const L = r.left + sx, T_ = r.top + sy;
+        if (L <= x0 + 1 && T_ <= y0 + 1 && r.right + sx >= x1 - 1 && r.bottom + sy >= y1 - 1 && r.width * r.height < area && laid(el) && !pinned(el)) { best = el; area = r.width * r.height; }
+      }
+      return best || document.body;
+    };
+    if (ink.length) {
+      // 1. vertical voids between content
+      const iv = ink.map((k) => [k.t, k.b]).sort((a, b) => a[0] - b[0]);
+      const merged = [];
+      for (const [t, b] of iv) { const m = merged[merged.length - 1]; if (m && t <= m[1]) m[1] = Math.max(m[1], b); else merged.push([t, b]); }
+      for (let i = 1; i < merged.length; i++) {
+        const gap = merged[i][0] - merged[i - 1][1];
+        if (gap > MAXGAP) add("space.gap", holder(0, merged[i - 1][1], 1, merged[i][0]), gap,
+          `${round(gap)}px of empty vertical space at y=${Math.round(merged[i - 1][1])} (limit ${MAXGAP}px at ${vw}px) — tighten the section padding, or fill it with content that earns the space`);
+      }
+      const last = merged[merged.length - 1][1];
+      if (docH > vh + 2 && docH - last > MAXGAP) add("space.tail", holder(0, last, 1, docH), docH - last, `${round(docH - last)}px of blank page after the last content — remove the trailing padding/min-height`);
+      if (docH <= vh + 2 && last < vh - MAXGAP) add("space.short", document.body, vh - last,
+        `the page ends at y=${Math.round(last)} and leaves ${round(vh - last)}px of the screen empty — pin the footer (min-height: 100dvh flex column, footer margin-top: auto) or give the page real content`);
+
+      // 2. content hugging one side (tablet/desktop): the column is the page's own content width
+      if (vw >= 768) {
+        const lefts = blockInk.map((k) => k.l).sort((a, b) => a - b), rights = blockInk.map((k) => k.r).sort((a, b) => a - b);
+        const colL = lefts[Math.floor(lefts.length * 0.05)], colR = rights[Math.floor(rights.length * 0.95)], colW = colR - colL;
+        if (colW > 480) {
+          const SLICE = 80, runs = [];
+          let run = null;
+          for (let y = merged[0][0]; y < last; y += SLICE) {
+            const inS = blockInk.filter((k) => k.b > y && k.t < y + SLICE && k.r - k.l < colW * 0.98);
+            const full = blockInk.some((k) => k.b > y && k.t < y + SLICE && k.r - k.l >= colW * 0.98);
+            let side = null, gapPx = 0;
+            if (inS.length && !full) {
+              const l = Math.min(...inS.map((k) => k.l)), r = Math.max(...inS.map((k) => k.r));
+              const lg = l - colL, rg = colR - r;
+              if (rg >= colW * 0.35 && lg <= colW * 0.1) { side = "right"; gapPx = rg; }
+              else if (lg >= colW * 0.35 && rg <= colW * 0.1) { side = "left"; gapPx = lg; }
+            }
+            if (side && run && run.side === side) { run.y1 = y + SLICE; run.gap = Math.min(run.gap, gapPx); }
+            else { if (run) runs.push(run); run = side ? { side, y0: y, y1: y + SLICE, gap: gapPx } : null; }
+          }
+          if (run) runs.push(run);
+          for (const rn of runs) if (rn.y1 - rn.y0 >= 240) {
+            const x0 = rn.side === "right" ? colR - rn.gap : colL, x1 = rn.side === "right" ? colR : colL + rn.gap;
+            add("space.side", holder(x0, rn.y0, x1, Math.min(rn.y1, last)), rn.gap,
+              `content hugs the ${rn.side === "right" ? "left" : "right"}: a ${round(rn.gap)}×${Math.round(rn.y1 - rn.y0)}px block on the ${rn.side} is empty at y=${Math.round(rn.y0)} — put the related image/aside/CTA beside it, widen it into a grid, or centre the column`);
+          }
+        }
+      }
+    }
+
+    // 3. grids / card wraps with holes in the last row
+    for (const el of all) {
+      const s = cs(el);
+      const isGrid = s.display.includes("grid"), isWrap = s.display.includes("flex") && s.flexWrap === "wrap";
+      if (!(isGrid || isWrap) || !laid(el) || pinned(el) || intentional(el)) continue;
+      const kids = [...el.children].filter((k) => { const r = k.getBoundingClientRect(); return r.width > 1 && r.height > 1 && laid(k) && cs(k).position !== "absolute"; });
+      if (kids.length < 3) continue;
+      const rects = kids.map((k) => k.getBoundingClientRect());
+      if (isWrap && Math.max(...rects.map((r) => r.height)) < 120) continue;   // chips / tags wrap raggedly by nature
+      const rows = new Map();
+      for (const r of rects) { const k = [...rows.keys()].find((t) => Math.abs(t - r.top) < 4) ?? r.top; rows.set(k, (rows.get(k) || []).concat([r])); }
+      if (rows.size < 2) continue;
+      const cols = Math.max(...[...rows.values()].map((v) => v.length));
+      const lastRow = [...rows.entries()].sort((a, b) => a[0] - b[0]).pop()[1];
+      if (cols < 2 || lastRow.length >= cols) continue;
+      const box = el.getBoundingClientRect();
+      const used = Math.max(...lastRow.map((r) => r.right)) - Math.min(...lastRow.map((r) => r.left));
+      if (used >= box.width * 0.85) continue;                               // the last row stretches to fill
+      add("space.orphans", el, box.width - used, `last row has ${lastRow.length} of ${cols} — ${cols - lastRow.length} empty cell(s): make the count fit the columns, let the last item(s) span, or reflow (auto-fit / a featured item)`);
+    }
+
+    // 4. boxed cards with a big empty inside (stretched to a taller neighbour, or fixed heights)
+    for (const el of all) {
+      if (!laid(el) || pinned(el)) continue;
+      const s = cs(el); const r = el.getBoundingClientRect();
+      if (r.height < 200 || r.width > vw * 0.9 || r.width < 120 || !boxedEl(s)) continue;
+      const pt = parseFloat(s.paddingTop), pb = parseFloat(s.paddingBottom);
+      const T0 = r.top + sy + pt, B0 = r.bottom + sy - pb;
+      const own = ink.filter((k) => el.contains(k.el) && k.t >= T0 - 2 && k.b <= B0 + 2).map((k) => [k.t, k.b]).sort((a, b) => a[0] - b[0]);
+      if (!own.length) continue;
+      let gap = own[0][0] - T0, at = T0, end = own[0][1];
+      for (const [t, b] of own) { if (t - end > gap) { gap = t - end; at = end; } end = Math.max(end, b); }
+      if (B0 - end > gap) { gap = B0 - end; at = end; }
+      if (gap >= Math.max(120, (B0 - T0) * 0.4)) add("space.card", el, gap, `${round(gap)}px of empty space inside this card at y=${Math.round(at)} — balance the content across cards, clamp the long one, or stop stretching it`);
+    }
   }
   return out;
 }

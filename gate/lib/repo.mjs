@@ -16,7 +16,7 @@ export const DEFAULT_CONFIG = {
   src: [],
   design: "",
   clicks: 25,
-  checks: { layout: true, impeccable: true, buttons: true, overlap: true, align: true, brand: true, type: true },
+  checks: { layout: true, impeccable: true, buttons: true, overlap: true, align: true, brand: true, type: true, space: true },
 };
 
 export function loadConfig(repo) {

@@ -41,9 +41,20 @@ t "proportional figures in a table"        'has type.tabular'
 t "layout sweep ran (frontend-visual-qa)"  'python3 -c "import json,sys; d=json.load(open(sys.argv[1]))[\"findings\"]; sys.exit(0 if any(f[\"check\"].startswith(\"layout.\") and f[\"check\"]!=\"layout.run\" for f in d) else 1)" "$R"'
 t "every finding has selector + message"   'python3 -c "import json,sys; d=json.load(open(sys.argv[1]))[\"findings\"]; sys.exit(0 if d and all(f[\"selector\"] and f[\"msg\"] for f in d) else 1)" "$R"'
 t "design-ok comment suppresses its selector" '! has align.icon-label "Intentional"'
-cp -R "$TMP/site" "$TMP/clean"; rm -rf "$TMP/clean/public/defects.html" "$TMP/clean/.design-kit"   # a repo whose code is clean too
+rc=0; node "$KIT/gate/design-gate.mjs" --repo "$TMP/site" --force --only align,space --routes /space.html > "$TMP/space.txt" 2>&1 || rc=$?
+t "whitespace/centring page fails (exit 1)" '[ "$rc" = 1 ]'
+s() { grep -q -- "$1" "$TMP/space.txt"; }
+t "label sitting high in a pill (cap-height vs box)"   's "\[align.centre\] span#high — label \"New\" sits .*px high in its pill"'
+t "label pushed to one side of a fixed-width pill"     's "label is not centred in its pill"'
+t "glyph off-centre in an icon-only button"            's "icon \"Search\" sits 4px right of centre in its icon button"'
+t "vertical void over the limit"                       's "\[space.gap\].*559px of empty vertical space"'
+t "grid last row with empty cells"                     's "\[space.orphans\].*last row has 1 of 3"'
+t "content hugging one side at desktop"                's "\[space.side\].*content hugs the left"'
+t "stretched card with a big empty inside"             's "\[space.card\]"'
+cp -R "$TMP/site" "$TMP/clean"; rm -rf "$TMP/clean/public/defects.html" "$TMP/clean/public/space.html" "$TMP/clean/.design-kit"   # a repo whose code is clean too
 rc=0; node "$KIT/gate/design-gate.mjs" --repo "$TMP/clean" --force --routes /clean.html > "$TMP/clean.txt" 2>&1 || rc=$?
 t "clean page passes (exit 0)" '[ "$rc" = 0 ] || { sed -n "1,40p" "$TMP/clean.txt"; false; }'
+t "clean page: no centring / whitespace findings" '[ -s "$TMP/clean.txt" ] && ! grep -E "align.centre|space\." "$TMP/clean.txt"'
 rc=0; node "$KIT/gate/design-gate.mjs" --repo "$TMP/clean" --routes /clean.html > "$TMP/stamp.txt" 2>&1 || rc=$?
 t "unchanged repo re-uses the pass stamp" '[ "$rc" = 0 ] && grep -q "unchanged since the last clean run" "$TMP/stamp.txt"'
 rc=0; node "$KIT/gate/design-gate.mjs" --repo "$TMP/clean" --force --url http://127.0.0.1:1 > "$TMP/down.txt" 2>&1 || rc=$?
