@@ -15,6 +15,16 @@ KIT="$(cd "$(dirname "$(python3 -c 'import os,sys;print(os.path.realpath(sys.arg
 . "$KIT/install/lib.sh"
 ROOT="$(git rev-parse --show-toplevel 2>/dev/null)" || { echo "design-init: run inside a git repo"; exit 1; }
 cd "$ROOT"
+
+# A repo can opt out of every kit: `<!-- kit:opt-out -->` in its CLAUDE.md or AGENTS.md, or a
+# .claude/kit-optout file (the marker the Skill Starter Kit honors too). Such a repo is never
+# initialized, whoever runs this: the global instructions tell agents to init any repo missing
+# this kit's files, and this script edits the root .gitignore — in some repos an input to
+# something that must not move (vibes: the app's OTA fingerprint).
+if [ -f .claude/kit-optout ] || grep -qs 'kit:opt-out' CLAUDE.md AGENTS.md; then
+    echo "✗ $(pwd) opts out of the kits (kit:opt-out in CLAUDE.md/AGENTS.md, or .claude/kit-optout). Nothing was written."
+    exit 0
+fi
 if [ "$REFRESH" = 1 ]; then
     [ -f .agents/design-kit.json ] || { say "· $(basename "$ROOT"): not wired (no .agents/design-kit.json) — skipped"; exit 0; }
     say "· $(basename "$ROOT")"
